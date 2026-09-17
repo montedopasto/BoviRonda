@@ -54,7 +54,13 @@
     try { data = JSON.parse(text); } catch {
       throw new Error("Resposta inválida do Apps Script.");
     }
-    if (!data.ok) throw new Error(data.error || "Erro na API.");
+    if (!data.ok) {
+      const msg = data.error || "Erro na API.";
+      if (msg === "Ação desconhecida.") {
+        throw new Error(`Ação desconhecida no Apps Script (${action}). Atualize a implementação do Code.gs.`);
+      }
+      throw new Error(msg);
+    }
     return data.data;
   }
 
@@ -89,19 +95,49 @@
 
   async function login(username, pin) {
     const data = await api("login", {username, pin});
-    state.session = {token: data.token, expiresAt: data.expiresAt};
+
+    state.session = {
+      token: data.token,
+      expiresAt: data.expiresAt
+    };
     state.profile = data.profile;
     saveSession();
-    await loadInitialData();
+
+    // Entrar na aplicação imediatamente após autenticação.
+    state.dashboard = {totalParks:0, openIncidents:0, farms:[]};
+    state.parks = [];
+    state.incidents = [];
+    state.rounds = [];
     renderShell();
+
+    // Carregamento de dados não pode bloquear nem desfazer o login.
+    try {
+      await loadInitialData();
+      renderShell();
+    } catch (err) {
+      console.error("BoviRonda: erro ao carregar dados iniciais", err);
+      toast("Sessão iniciada. Alguns dados não puderam ser carregados.");
+    }
   }
 
   async function resumeSession() {
     if (!state.session?.token) return false;
+
     try {
       const data = await api("me");
       state.profile = data.profile;
-      await loadInitialData();
+
+      state.dashboard = {totalParks:0, openIncidents:0, farms:[]};
+      state.parks = [];
+      state.incidents = [];
+      state.rounds = [];
+
+      try {
+        await loadInitialData();
+      } catch (err) {
+        console.error("BoviRonda: falha ao atualizar dados da sessão", err);
+      }
+
       return true;
     } catch {
       state.session = null;
@@ -112,16 +148,22 @@
   }
 
   async function loadInitialData() {
-    const [dashboard, parks, incidents, rounds] = await Promise.all([
+    const [dashboard, parks, incidents] = await Promise.all([
       api("dashboard"),
       api("listParks"),
-      api("listIncidents", {status:"open"}),
-      api("listRounds")
+      api("listIncidents", {status:"open"})
     ]);
+
     state.dashboard = dashboard;
     state.parks = parks;
     state.incidents = incidents;
-    state.rounds = rounds;
+
+    try {
+      state.rounds = await api("listRounds");
+    } catch (err) {
+      console.warn("BoviRonda: listRounds indisponível nesta versão do backend.", err);
+      state.rounds = [];
+    }
   }
 
   function renderLogin(error="") {

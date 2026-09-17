@@ -1,0 +1,14 @@
+BoviRonda v1.6.2 — Login e cache
+
+- Login deixa de depender do carregamento do dashboard/rondas.
+- Depois de validar user + PIN, entra imediatamente na aplicação.
+- Falhas secundárias mostram aviso, mas não devolvem ao login.
+- Index usa versões ?v=162 em app.js, styles.css, config.js e manifest.
+- Service Worker elimina caches antigas automaticamente.
+- Erro "Ação desconhecida" passa a indicar qual ação o backend não reconheceu.
+
+ATUALIZAÇÃO:
+1. Substituir TODOS os ficheiros no GitHub, sobretudo index.html, app.js e sw.js.
+2. Substituir Code.gs no Apps Script.
+3. Apps Script > Implementar > Gerir implementações > Editar > Nova versão > Implementar.
+4. Abrir a app numa nova aba ou fechar/reabrir a PWA.

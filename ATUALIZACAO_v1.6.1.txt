@@ -1,0 +1,20 @@
+BoviRonda v1.6.1 — Correção de login
+
+Problema corrigido:
+- A versão 1.6 fazia o login e logo depois chamava a nova ação listRounds.
+- Se o Apps Script publicado ainda fosse a versão anterior, respondia "Ação desconhecida".
+- Essa falha fazia a aplicação regressar ao login.
+
+Agora:
+- O login deixa de depender de listRounds.
+- Se o backend ainda não tiver listRounds, a app entra normalmente.
+- A página Rondas continua disponível.
+- Assim que o Code.gs novo for publicado, o histórico das rondas aparece automaticamente.
+
+Para ter o histórico de rondas:
+1. Substituir Code.gs no Apps Script.
+2. Implementar > Gerir implementações > Editar.
+3. Selecionar Nova versão.
+4. Implementar.
+
+Cache PWA atualizada para v1.6.1.
