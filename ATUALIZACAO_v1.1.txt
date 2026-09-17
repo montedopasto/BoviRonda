@@ -1,0 +1,14 @@
+BoviRonda v1.1
+
+CORREÇÕES:
+- Admin pode editar utilizadores.
+- Admin pode alterar/resetar o PIN de qualquer utilizador.
+- Admin pode alterar nome, username, perfil e estado.
+- PIN nunca é mostrado nem guardado em texto simples na Sheet.
+- Novo PIN é validado entre 4 e 8 dígitos.
+- Criação de utilizador pede confirmação do PIN.
+- config.js já contém o URL do Apps Script fornecido.
+
+IMPORTANTE:
+Depois de substituir o Code.gs no Apps Script:
+Implementar > Gerir implementações > Editar > Nova versão > Implementar.

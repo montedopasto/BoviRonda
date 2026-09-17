@@ -689,10 +689,20 @@
         state.users = users;
         body.innerHTML = `
           <button id="addUserBtn" class="btn btn-primary" style="margin-bottom:12px">+ Novo utilizador</button>
-          <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Utilizador</th><th>Perfil</th><th>Estado</th></tr></thead><tbody>
-          ${users.map(u=>`<tr><td>${escapeHtml(u.fullName)}</td><td>${escapeHtml(u.username)}</td><td>${escapeHtml(ROLE_LABELS[u.role]||u.role)}</td><td>${u.active?"Ativo":"Inativo"}</td></tr>`).join("")}
+          <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Utilizador</th><th>Perfil</th><th>Estado</th><th></th></tr></thead><tbody>
+          ${users.map(u=>`<tr>
+            <td>${escapeHtml(u.fullName)}</td>
+            <td>${escapeHtml(u.username)}</td>
+            <td>${escapeHtml(ROLE_LABELS[u.role]||u.role)}</td>
+            <td>${u.active?'<span class="badge badge-green">Ativo</span>':'<span class="badge badge-grey">Inativo</span>'}</td>
+            <td><button class="btn btn-soft edit-user-btn" data-id="${u.id}">Editar</button></td>
+          </tr>`).join("")}
           </tbody></table></div>`;
         document.getElementById("addUserBtn").addEventListener("click", newUserModal);
+        document.querySelectorAll(".edit-user-btn").forEach(btn => btn.addEventListener("click", () => {
+          const user = state.users.find(u => u.id === btn.dataset.id);
+          if (user) editUserModal(user);
+        }));
       } else if (tab === "parks") {
         body.innerHTML = `
           <button id="addParkBtn" class="btn btn-primary" style="margin-bottom:12px">+ Novo parque</button>
@@ -714,15 +724,78 @@
       <form id="newUserForm" class="form-grid">
         <div class="field"><label>Nome</label><input id="newFullName" required></div>
         <div class="field"><label>Username</label><input id="newUsername" required></div>
-        <div class="field"><label>PIN</label><input id="newPin" inputmode="numeric" required></div>
+        <div class="field"><label>PIN</label><input id="newPin" type="password" inputmode="numeric" pattern="[0-9]*" required placeholder="4 a 8 dígitos"></div>
+        <div class="field"><label>Confirmar PIN</label><input id="newPinConfirm" type="password" inputmode="numeric" pattern="[0-9]*" required></div>
         <div class="field"><label>Perfil</label><select id="newRole"><option value="utilizador">Utilizador</option><option value="veterinario">Veterinário</option><option value="chefia">Chefia</option><option value="admin">Admin</option></select></div>
         <button class="btn btn-primary" type="submit">Criar utilizador</button>
       </form>`);
     document.getElementById("newUserForm").addEventListener("submit", async e=>{
       e.preventDefault();
+      const pin = document.getElementById("newPin").value.trim();
+      const confirm = document.getElementById("newPinConfirm").value.trim();
+      if (!/^\d{4,8}$/.test(pin)) { toast("O PIN deve ter entre 4 e 8 dígitos."); return; }
+      if (pin !== confirm) { toast("Os dois PIN não coincidem."); return; }
       try {
-        await api("createUser",{fullName:newFullName.value.trim(),username:newUsername.value.trim(),pin:newPin.value.trim(),role:newRole.value});
+        await api("createUser",{fullName:newFullName.value.trim(),username:newUsername.value.trim(),pin,role:newRole.value});
         toast("Utilizador criado."); closeModal(); loadAdminTab("users");
+      } catch(err){toast(err.message)}
+    });
+  }
+
+  function editUserModal(user) {
+    showModal(`
+      <div class="modal-head">
+        <div><h2>Editar utilizador</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(user.username)}</div></div>
+        <button class="icon-btn modal-close" type="button">×</button>
+      </div>
+      <form id="editUserForm" class="form-grid">
+        <div class="field"><label>Nome</label><input id="editFullName" required value="${escapeHtml(user.fullName)}"></div>
+        <div class="field"><label>Utilizador</label><input id="editUsername" required value="${escapeHtml(user.username)}"></div>
+        <div class="field"><label>Perfil</label>
+          <select id="editRole">
+            <option value="utilizador" ${user.role==="utilizador"?"selected":""}>Utilizador</option>
+            <option value="veterinario" ${user.role==="veterinario"?"selected":""}>Veterinário</option>
+            <option value="chefia" ${user.role==="chefia"?"selected":""}>Chefia</option>
+            <option value="admin" ${user.role==="admin"?"selected":""}>Admin</option>
+          </select>
+        </div>
+        <div class="field"><label>Estado</label>
+          <select id="editActive">
+            <option value="true" ${user.active?"selected":""}>Ativo</option>
+            <option value="false" ${!user.active?"selected":""}>Inativo</option>
+          </select>
+        </div>
+        <section class="card card-pad">
+          <h3 style="margin-top:0;margin-bottom:5px">Alterar / Resetar PIN</h3>
+          <p style="margin-top:0;color:var(--muted);font-size:.82rem">Deixe vazio para manter o PIN atual.</p>
+          <div class="form-grid two">
+            <div class="field"><label>Novo PIN</label><input id="editPin" type="password" inputmode="numeric" pattern="[0-9]*" placeholder="4 a 8 dígitos"></div>
+            <div class="field"><label>Confirmar novo PIN</label><input id="editPinConfirm" type="password" inputmode="numeric" pattern="[0-9]*"></div>
+          </div>
+        </section>
+        <button class="btn btn-primary btn-block" type="submit">Guardar alterações</button>
+      </form>
+    `);
+
+    document.getElementById("editUserForm").addEventListener("submit", async e => {
+      e.preventDefault();
+      const pin = document.getElementById("editPin").value.trim();
+      const pinConfirm = document.getElementById("editPinConfirm").value.trim();
+      if (pin && !/^\d{4,8}$/.test(pin)) { toast("O PIN deve ter entre 4 e 8 dígitos."); return; }
+      if (pin !== pinConfirm) { toast("Os dois PIN não coincidem."); return; }
+
+      try {
+        await api("updateUser",{
+          userId:user.id,
+          fullName:document.getElementById("editFullName").value.trim(),
+          username:document.getElementById("editUsername").value.trim(),
+          role:document.getElementById("editRole").value,
+          active:document.getElementById("editActive").value==="true",
+          pin
+        });
+        toast(pin ? "Utilizador e PIN atualizados." : "Utilizador atualizado.");
+        closeModal();
+        loadAdminTab("users");
       } catch(err){toast(err.message)}
     });
   }
