@@ -1,6 +1,6 @@
 window.BOVIRONDA_CONFIG = {
   // Cole aqui o URL /exec da implementação do Google Apps Script.
-  API_URL: "COLE_AQUI_O_URL_DO_APPS_SCRIPT_EXEC",
+  API_URL: "https://script.google.com/macros/s/AKfycbyhiNiWQjqQ21Uxqfgv3hASTgn3_JnALlmXxWfsAHAyrLDiU50V005dOq9TJRAkttmn/exec",
 
   // Título apresentado na app.
   APP_NAME: "BoviRonda",
