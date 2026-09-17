@@ -233,53 +233,286 @@
 
   function renderHome(el) {
     const d = state.dashboard || {};
-    const farms = d.farms || [];
-    const attention = (state.parks || []).filter(p => p.daysSinceRound === null || p.daysSinceRound >= (C.WARNING_DAYS || 3)).slice(0,6);
+    const parks = state.parks || [];
+    const incidents = (state.incidents || []).filter(i => i.status !== "resolvida");
+
+    const todayParks = parks.filter(p => p.daysSinceRound === 0);
+    const notTodayParks = parks.filter(p => p.daysSinceRound !== 0);
+    const overdueParks = parks
+      .filter(p => p.daysSinceRound === null || p.daysSinceRound >= (C.WARNING_DAYS || 3))
+      .sort((a,b) => (b.daysSinceRound ?? 9999) - (a.daysSinceRound ?? 9999));
+
+    const criticalIncidents = incidents.filter(i => ["sem_agua","sem_comida"].includes(i.type));
+    const vetIncidents = incidents.filter(i => i.category === "veterinaria");
+    const operationalIncidents = incidents.filter(i => i.category === "operacional" && !["sem_agua","sem_comida"].includes(i.type));
+
+    const farmCards = (d.farms || []).map(f => {
+      const farmParks = parks.filter(p => p.farmId === f.id);
+      const today = farmParks.filter(p => p.daysSinceRound === 0).length;
+      const withoutToday = farmParks.length - today;
+      const overdue = farmParks.filter(p => p.daysSinceRound === null || p.daysSinceRound >= (C.WARNING_DAYS || 3)).length;
+      return {...f, today, withoutToday, overdue};
+    });
 
     el.innerHTML = `
-      <section class="card hero">
-        <small>Visão do terreno</small>
-        <h2>Bom dia, ${escapeHtml((state.profile.fullName || "").split(" ")[0])}</h2>
-        <p>${d.totalParks || 0} parques · ${d.openIncidents || 0} ocorrências abertas</p>
+      ${renderTopAlerts(criticalIncidents, vetIncidents, operationalIncidents, overdueParks)}
+
+      <section class="card hero dashboard-hero">
+        <small>Estado das rondas de hoje</small>
+        <h2>${todayParks.length} de ${parks.length} parques já tiveram ronda</h2>
+        <p>Os restantes continuam visíveis abaixo. A cor mostra há quanto tempo foi feita a última ronda.</p>
+
+        <div class="dashboard-progress-wrap">
+          <div class="dashboard-progress-label">
+            <span>${todayParks.length} com ronda hoje</span>
+            <strong>${parks.length ? Math.round((todayParks.length / parks.length) * 100) : 0}%</strong>
+          </div>
+          <div class="dashboard-progress"><span style="width:${parks.length ? Math.round((todayParks.length / parks.length) * 100) : 0}%"></span></div>
+        </div>
+
         <div class="hero-actions">
           ${roleCanRound() ? `<button id="homeScanBtn" class="btn btn-light">▣ &nbsp; Ler QR do parque</button>` : ""}
-          <button id="refreshBtn" class="btn" style="background:rgba(255,255,255,.13);color:#fff">↻ Atualizar</button>
+          <button id="refreshBtn" class="btn hero-secondary-btn">↻ Atualizar</button>
         </div>
       </section>
 
-      <div class="section-title"><div><h3>Explorações</h3><p>Estado das rondas por exploração</p></div></div>
-      <section class="farms">
-        ${farms.map(f => `
-          <article class="card farm-card">
+      <section class="dashboard-kpis">
+        <button class="dashboard-kpi dashboard-kpi-done" id="showTodayBtn">
+          <span class="dashboard-kpi-icon">✓</span>
+          <div><strong>${todayParks.length}</strong><span>Com ronda hoje</span></div>
+        </button>
+
+        <button class="dashboard-kpi dashboard-kpi-pending" id="showPendingBtn">
+          <span class="dashboard-kpi-icon">○</span>
+          <div><strong>${notTodayParks.length}</strong><span>Sem ronda hoje</span></div>
+        </button>
+
+        <button class="dashboard-kpi dashboard-kpi-warning" id="showOverdueBtn">
+          <span class="dashboard-kpi-icon">!</span>
+          <div><strong>${overdueParks.length}</strong><span>Há +${C.WARNING_DAYS || 3} dias</span></div>
+        </button>
+
+        <button class="dashboard-kpi dashboard-kpi-alert" id="showAlertsBtn">
+          <span class="dashboard-kpi-icon">⚠</span>
+          <div><strong>${incidents.length}</strong><span>Alertas abertos</span></div>
+        </button>
+      </section>
+
+      <div class="section-title dashboard-section-title">
+        <div>
+          <h3>Explorações</h3>
+          <p>Comparação rápida entre Monte Ruivo e Trolho</p>
+        </div>
+      </div>
+
+      <section class="farms dashboard-farms">
+        ${farmCards.map(f => `
+          <article class="card farm-card dashboard-farm-card">
             <div class="farm-head">
               <div><h3>${escapeHtml(f.name)}</h3><p>${f.totalParks} parques</p></div>
               <span class="badge ${f.openIncidents ? 'badge-red':'badge-green'}">${f.openIncidents} alertas</span>
             </div>
+
+            <div class="farm-round-status">
+              <div class="farm-round-main"><strong>${f.today}</strong><span>com ronda hoje</span></div>
+              <div class="farm-round-bar"><span style="width:${f.totalParks ? Math.round((f.today/f.totalParks)*100) : 0}%"></span></div>
+            </div>
+
             <div class="stats-row">
-              <div class="stat"><strong>${f.roundsToday}</strong><span>Hoje</span></div>
-              <div class="stat"><strong>${f.withoutRecentRound}</strong><span>+${C.WARNING_DAYS || 3} dias</span></div>
-              <div class="stat"><strong>${f.openIncidents}</strong><span>Ocorrências</span></div>
+              <div class="stat stat-ok"><strong>${f.today}</strong><span>Feitos hoje</span></div>
+              <div class="stat"><strong>${f.withoutToday}</strong><span>Sem ronda hoje</span></div>
+              <div class="stat ${f.overdue ? 'stat-alert' : ''}"><strong>${f.overdue}</strong><span>+${C.WARNING_DAYS || 3} dias</span></div>
             </div>
           </article>`).join("")}
       </section>
 
-      <div class="section-title"><div><h3>Atenção</h3><p>Parques há mais tempo sem ronda</p></div><button id="allParksBtn" class="btn btn-soft">Ver todos</button></div>
-      <section class="list">
-        ${attention.length ? attention.map(p => parkListItem(p)).join("") : `<div class="card empty">Não existem parques a exigir atenção.</div>`}
-      </section>
+      <div id="dashboardParkSection">
+        ${renderDashboardParkSections(todayParks, notTodayParks, overdueParks)}
+      </div>
 
-      ${(roleCanSeeVet() || roleCanSeeOperations()) ? `
-      <div class="section-title"><div><h3>Ocorrências abertas</h3><p>Últimos alertas registados</p></div><button id="allIncBtn" class="btn btn-soft">Ver todas</button></div>
-      <section class="list">
-        ${(state.incidents || []).slice(0,5).map(incidentListItem).join("") || `<div class="card empty">Sem ocorrências abertas.</div>`}
-      </section>` : ""}`;
+      ${incidents.length ? `
+        <div class="section-title dashboard-section-title">
+          <div>
+            <h3>Ocorrências abertas</h3>
+            <p>Problemas que ainda não foram dados como resolvidos</p>
+          </div>
+          <button id="allIncBtn" class="btn btn-soft">Ver todas</button>
+        </div>
+        <section class="list dashboard-incident-list">
+          ${incidents.slice(0,6).map(incidentListItem).join("")}
+        </section>
+      ` : ""}
+    `;
 
     document.getElementById("homeScanBtn")?.addEventListener("click", () => navigate("scan"));
-    document.getElementById("allParksBtn").addEventListener("click", () => navigate("parks"));
-    document.getElementById("allIncBtn")?.addEventListener("click", () => navigate("incidents"));
     document.getElementById("refreshBtn").addEventListener("click", refreshAll);
+    document.getElementById("allIncBtn")?.addEventListener("click", () => navigate("incidents"));
+
+    document.getElementById("showTodayBtn").addEventListener("click", () => {
+      document.getElementById("dashboardParkSection").innerHTML = renderDashboardParkGroup("Parques com ronda hoje","Já foram verificados hoje",todayParks,"done");
+      bindParkButtons();
+    });
+
+    document.getElementById("showPendingBtn").addEventListener("click", () => {
+      document.getElementById("dashboardParkSection").innerHTML = renderDashboardParkGroup("Parques sem ronda hoje","Não significa necessariamente atraso; mostra apenas que ainda não foram visitados hoje",notTodayParks,"pending");
+      bindParkButtons();
+    });
+
+    document.getElementById("showOverdueBtn").addEventListener("click", () => {
+      document.getElementById("dashboardParkSection").innerHTML = renderDashboardParkGroup(`Parques há +${C.WARNING_DAYS || 3} dias sem ronda`,"Estes parques merecem maior atenção",overdueParks,"overdue");
+      bindParkButtons();
+    });
+
+    document.getElementById("showAlertsBtn").addEventListener("click", () => navigate("incidents"));
+
+    document.querySelectorAll(".dashboard-alert-click").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (btn.dataset.target === "incidents") navigate("incidents");
+        if (btn.dataset.target === "parks") {
+          document.getElementById("dashboardParkSection").innerHTML = renderDashboardParkGroup(`Parques há +${C.WARNING_DAYS || 3} dias sem ronda`,"Estes parques merecem maior atenção",overdueParks,"overdue");
+          bindParkButtons();
+          document.getElementById("dashboardParkSection").scrollIntoView({behavior:"smooth", block:"start"});
+        }
+      });
+    });
+
     bindParkButtons();
     bindIncidentButtons();
+  }
+
+  function renderTopAlerts(criticalIncidents, vetIncidents, operationalIncidents, overdueParks) {
+    const blocks = [];
+
+    if (criticalIncidents.length) {
+      blocks.push(`
+        <button class="dashboard-alert dashboard-alert-critical dashboard-alert-click" data-target="incidents">
+          <div class="dashboard-alert-icon">!</div>
+          <div class="dashboard-alert-content">
+            <strong>${criticalIncidents.length} alerta${criticalIncidents.length===1?"":"s"} crítico${criticalIncidents.length===1?"":"s"}</strong>
+            <span>${criticalIncidents.slice(0,2).map(i => `${i.parkCode} · ${i.typeLabel}`).join("  •  ")}${criticalIncidents.length>2?"  •  +"+(criticalIncidents.length-2):""}</span>
+          </div>
+          <div class="dashboard-alert-arrow">›</div>
+        </button>`);
+    }
+
+    if (vetIncidents.length) {
+      blocks.push(`
+        <button class="dashboard-alert dashboard-alert-vet dashboard-alert-click" data-target="incidents">
+          <div class="dashboard-alert-icon">✚</div>
+          <div class="dashboard-alert-content">
+            <strong>${vetIncidents.length} ocorrência${vetIncidents.length===1?"":"s"} veterinária${vetIncidents.length===1?"":"s"}</strong>
+            <span>${vetIncidents.slice(0,2).map(i => `${i.parkCode} · ${i.typeLabel}`).join("  •  ")}${vetIncidents.length>2?"  •  +"+(vetIncidents.length-2):""}</span>
+          </div>
+          <div class="dashboard-alert-arrow">›</div>
+        </button>`);
+    }
+
+    if (operationalIncidents.length) {
+      blocks.push(`
+        <button class="dashboard-alert dashboard-alert-warning dashboard-alert-click" data-target="incidents">
+          <div class="dashboard-alert-icon">⚠</div>
+          <div class="dashboard-alert-content">
+            <strong>${operationalIncidents.length} problema${operationalIncidents.length===1?"":"s"} operacional${operationalIncidents.length===1?"":"ais"}</strong>
+            <span>${operationalIncidents.slice(0,2).map(i => `${i.parkCode} · ${i.typeLabel}`).join("  •  ")}${operationalIncidents.length>2?"  •  +"+(operationalIncidents.length-2):""}</span>
+          </div>
+          <div class="dashboard-alert-arrow">›</div>
+        </button>`);
+    }
+
+    if (overdueParks.length) {
+      blocks.push(`
+        <button class="dashboard-alert dashboard-alert-stale dashboard-alert-click" data-target="parks">
+          <div class="dashboard-alert-icon">◷</div>
+          <div class="dashboard-alert-content">
+            <strong>${overdueParks.length} parque${overdueParks.length===1?"":"s"} há vários dias sem ronda</strong>
+            <span>${overdueParks.slice(0,3).map(p => `${p.code} · ${p.daysSinceRound===null?"sem histórico":p.daysSinceRound+" dias"}`).join("  •  ")}</span>
+          </div>
+          <div class="dashboard-alert-arrow">›</div>
+        </button>`);
+    }
+
+    if (!blocks.length) {
+      blocks.push(`
+        <div class="dashboard-alert dashboard-alert-clear">
+          <div class="dashboard-alert-icon">✓</div>
+          <div class="dashboard-alert-content">
+            <strong>Sem alertas ativos</strong>
+            <span>Não existem ocorrências críticas ou parques a exigir atenção neste momento.</span>
+          </div>
+        </div>`);
+    }
+
+    return `<section class="dashboard-alert-stack">${blocks.join("")}</section>`;
+  }
+
+  function renderDashboardParkSections(todayParks, notTodayParks, overdueParks) {
+    return `
+      ${renderDashboardParkGroup("Parques com ronda hoje",`${todayParks.length} parque${todayParks.length===1?"":"s"} já verificado${todayParks.length===1?"":"s"} hoje`,todayParks,"done")}
+      ${renderDashboardParkGroup("Ainda sem ronda hoje","Informação de acompanhamento; não significa obrigatoriamente atraso",notTodayParks,"pending")}
+      ${overdueParks.length ? renderDashboardParkGroup(`Atenção · +${C.WARNING_DAYS || 3} dias sem ronda`,"Os parques abaixo devem destacar-se no acompanhamento da exploração",overdueParks,"overdue") : ""}
+    `;
+  }
+
+  function renderDashboardParkGroup(title, subtitle, parks, mode) {
+    const icon = mode === "done" ? "✓" : mode === "overdue" ? "!" : "○";
+    return `
+      <section class="dashboard-park-group dashboard-park-group-${mode}">
+        <div class="section-title dashboard-section-title">
+          <div>
+            <h3><span class="dashboard-section-icon">${icon}</span>${escapeHtml(title)}</h3>
+            <p>${escapeHtml(subtitle)}</p>
+          </div>
+          <span class="dashboard-count">${parks.length}</span>
+        </div>
+        <div class="dashboard-park-grid">
+          ${parks.length ? parks.map(p => dashboardParkCard(p, mode)).join("") : `<div class="card empty dashboard-empty">${mode === "done" ? "Ainda nenhum parque recebeu ronda hoje." : "Não existem parques nesta situação."}</div>`}
+        </div>
+      </section>`;
+  }
+
+  function dashboardParkCard(p, mode) {
+    let stateClass = "park-state-pending";
+    let stateText = "Sem ronda hoje";
+    let stateIcon = "○";
+
+    if (p.daysSinceRound === 0) {
+      stateClass = "park-state-done";
+      stateText = "Ronda feita hoje";
+      stateIcon = "✓";
+    } else if (p.daysSinceRound === null) {
+      stateClass = "park-state-overdue";
+      stateText = "Nunca teve ronda";
+      stateIcon = "!";
+    } else if (p.daysSinceRound >= (C.CRITICAL_DAYS || 5)) {
+      stateClass = "park-state-critical";
+      stateText = `${p.daysSinceRound} dias sem ronda`;
+      stateIcon = "!";
+    } else if (p.daysSinceRound >= (C.WARNING_DAYS || 3)) {
+      stateClass = "park-state-overdue";
+      stateText = `${p.daysSinceRound} dias sem ronda`;
+      stateIcon = "!";
+    } else {
+      stateText = p.daysSinceRound === 1 ? "Última ronda ontem" : `Última ronda há ${p.daysSinceRound} dias`;
+    }
+
+    return `
+      <button class="dashboard-park-card park-open ${stateClass}" data-id="${escapeHtml(p.id)}">
+        <div class="dashboard-park-card-top">
+          <div>
+            <strong>${escapeHtml(p.code)}</strong>
+            <span>${escapeHtml(p.farmName)}${p.name ? " · "+escapeHtml(p.name):""}</span>
+          </div>
+          <div class="dashboard-park-status-icon">${stateIcon}</div>
+        </div>
+        <div class="dashboard-park-state">${stateText}</div>
+        <div class="dashboard-park-last">${p.lastRoundUser ? `Última por ${escapeHtml(p.lastRoundUser)}` : "Sem histórico de rondas"}</div>
+        ${p.daysSinceRound === 0 ? `<div class="dashboard-last-state"><span>💧 ${p.water ? escapeHtml(statusDisplay(p.water)) : "—"}</span><span>🌾 ${p.feed ? escapeHtml(statusDisplay(p.feed)) : "—"}</span></div>` : ""}
+      </button>`;
+  }
+
+  function statusDisplay(value) {
+    const map = {ok:"OK",sem_agua:"Sem água",problema_bebedouro:"Problema",sem_comida:"Sem comida",insuficiente:"Insuficiente",problema:"Problema"};
+    return map[value] || value || "—";
   }
 
   function parkListItem(p) {

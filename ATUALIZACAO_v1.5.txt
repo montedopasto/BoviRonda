@@ -1,0 +1,14 @@
+BoviRonda v1.5 — Dashboard intuitivo + alertas
+
+- Alertas críticos no topo.
+- Resumo imediato de rondas de hoje.
+- Separação clara: com ronda hoje / sem ronda hoje / +3 dias.
+- Estado por exploração.
+- Cores mais fortes para situações que exigem atenção.
+- Cards clicáveis dos parques.
+- Cache PWA atualizada para v1.5.
+
+Nesta versão basta atualizar no GitHub:
+app.js
+styles.css
+sw.js
