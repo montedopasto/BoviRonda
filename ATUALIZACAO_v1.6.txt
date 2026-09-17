@@ -1,0 +1,10 @@
+BoviRonda v1.6
+
+- Logo oficial transparente corrigido.
+- Menu QR passa a Rondas.
+- Topo de Rondas: escolher parque + botão Ler QR.
+- Histórico das rondas efetuadas por baixo.
+- Novo endpoint listRounds no Code.gs.
+- Depois de guardar ronda volta ao menu Rondas.
+
+Atualizar GitHub e Code.gs; depois criar nova versão da implementação Apps Script.

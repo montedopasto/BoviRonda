@@ -49,6 +49,7 @@ function doPost(e) {
       case "me": data = {profile: profileForClient_(session.user)}; break;
       case "dashboard": data = dashboard_(session); break;
       case "listParks": data = listParks_(session); break;
+      case "listRounds": data = listRounds_(session); break;
       case "getPark": data = getPark_(session,payload); break;
       case "findParkByQr": data = findParkByQr_(session,payload); break;
       case "createRound": data = createRound_(session,payload); break;
@@ -225,6 +226,39 @@ function listParks_(session) {
       water:last?.Agua||null,feed:last?.Comida||null,infrastructure:last?.Infraestrutura||null
     };
   });
+}
+
+function listRounds_(session) {
+  const parks=indexBy_(listAdminParksForRounds_(),"id");
+  const users=indexBy_(rows_(BR.SHEETS.USERS),"ID");
+  return rows_(BR.SHEETS.ROUNDS)
+    .sort((a,b)=>new Date(b.DataHoraFim||b.CriadoEm)-new Date(a.DataHoraFim||a.CriadoEm))
+    .slice(0,250)
+    .map(r=>({
+      id:r.ID,
+      parkId:r.ParqueID,
+      parkCode:parks[r.ParqueID]?.code||"(parque removido)",
+      parkName:parks[r.ParqueID]?.name||"",
+      farmName:parks[r.ParqueID]?.farmName||"",
+      userName:users[r.UtilizadorID]?.Nome||"(utilizador removido)",
+      completedAt:r.DataHoraFim||r.CriadoEm,
+      completedAtLabel:dateTimeLabel_(r.DataHoraFim||r.CriadoEm),
+      water:r.Agua||"ok",
+      waterLabel:statusText_(r.Agua||"ok"),
+      feed:r.Comida||"ok",
+      feedLabel:statusText_(r.Comida||"ok"),
+      infrastructure:r.Infraestrutura||"ok",
+      infrastructureType:r.TipoInfraestrutura||"",
+      notes:r.Observacoes||""
+    }));
+}
+
+function listAdminParksForRounds_() {
+  const farms=indexBy_(rows_(BR.SHEETS.FARMS),"ID");
+  return rows_(BR.SHEETS.PARKS).map(p=>({
+    id:p.ID,code:p.Codigo,name:p.Nome||"",farmId:p.ExploracaoID,
+    farmName:farms[p.ExploracaoID]?.Nome||"",active:bool_(p.Ativo)
+  }));
 }
 
 function getPark_(session,p) {

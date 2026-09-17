@@ -179,7 +179,7 @@ tr:last-child td{border-bottom:0}
   max-width:100%;
   height:auto;
   object-fit:contain;
-  filter:brightness(0) invert(1);
+  filter:none;
 }
 .topbar-logo{
   width:62px;
@@ -259,3 +259,20 @@ button.dashboard-alert{cursor:pointer}
 .dashboard-empty{grid-column:1/-1}
 @media (min-width:700px){.dashboard-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}.dashboard-park-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (min-width:1100px){.dashboard-park-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* LOGO + RONDAS v1.6 */
+.sidebar-brand{background:#fff;border-radius:18px;padding:16px!important;margin-bottom:18px}
+.sidebar-logo{width:100%;max-width:175px;height:auto;display:block;margin:0 auto;object-fit:contain;filter:none!important}
+.sidebar-brand h2{color:#173f32;text-align:center;margin-top:8px!important}
+.sidebar-brand small{display:block;color:#687970!important;opacity:1!important;text-align:center}
+.login-logo{width:min(300px,84%);height:auto;display:block;margin:0 auto 18px;object-fit:contain;background:transparent}
+.topbar-logo{object-fit:contain;background:transparent}
+.new-round-card{margin-bottom:18px}
+.new-round-head h3{margin:0}.new-round-head p{margin:4px 0 14px;color:var(--muted);font-size:.84rem}
+.round-start-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;margin-bottom:10px}
+.round-park-field{min-width:0}.round-qr-btn{min-width:112px;display:flex;align-items:center;justify-content:center;gap:7px;min-height:48px;white-space:nowrap}.round-qr-icon{font-size:1.15rem}
+.rounds-history-title{margin-top:22px}.rounds-list{display:grid;gap:10px}.round-history-card{padding:14px;box-shadow:none}
+.round-history-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.round-history-top strong{display:block;font-size:1rem}.round-history-top span:not(.badge){display:block;color:var(--muted);margin-top:2px;font-size:.75rem}
+.round-history-meta{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;color:var(--muted);font-size:.75rem}.round-history-status{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.round-history-status span{border-radius:10px;padding:7px 9px;font-size:.72rem;font-weight:800}
+.round-status-ok{background:#e5f2eb;color:#1f6748}.round-status-bad{background:#fde7e7;color:#9d3030}.round-history-notes{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:.78rem;color:var(--muted)}
+@media (max-width:520px){.round-start-row{grid-template-columns:minmax(0,1fr) 104px}.round-qr-btn{min-width:104px;padding-left:10px;padding-right:10px}}

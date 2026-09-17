@@ -9,6 +9,7 @@
     dashboard: null,
     parks: [],
     incidents: [],
+    rounds: [],
     users: [],
     farms: [],
     page: "home",
@@ -111,14 +112,16 @@
   }
 
   async function loadInitialData() {
-    const [dashboard, parks, incidents] = await Promise.all([
+    const [dashboard, parks, incidents, rounds] = await Promise.all([
       api("dashboard"),
       api("listParks"),
-      api("listIncidents", {status:"open"})
+      api("listIncidents", {status:"open"}),
+      api("listRounds")
     ]);
     state.dashboard = dashboard;
     state.parks = parks;
     state.incidents = incidents;
+    state.rounds = rounds;
   }
 
   function renderLogin(error="") {
@@ -164,10 +167,10 @@
   function navItems() {
     const items = [
       ["home","⌂","Início"],
+      ["rounds","↻","Rondas"],
       ["parks","▦","Parques"],
       ["incidents","!","Ocorrências"]
     ];
-    if (roleCanRound()) items.splice(1,0,["scan","▣","QR"]);
     if (state.profile?.role === "admin") items.push(["admin","⚙","Admin"]);
     return items;
   }
@@ -225,6 +228,7 @@
     const el = document.getElementById("page");
     if (!el) return;
     if (state.page === "home") renderHome(el);
+    else if (state.page === "rounds") renderRounds(el);
     else if (state.page === "scan") renderScanner(el);
     else if (state.page === "parks") renderParks(el);
     else if (state.page === "incidents") renderIncidents(el);
@@ -344,7 +348,7 @@
       ` : ""}
     `;
 
-    document.getElementById("homeScanBtn")?.addEventListener("click", () => navigate("scan"));
+    document.getElementById("homeScanBtn")?.addEventListener("click", () => navigate("rounds"));
     document.getElementById("refreshBtn").addEventListener("click", refreshAll);
     document.getElementById("allIncBtn")?.addEventListener("click", () => navigate("incidents"));
 
@@ -587,6 +591,149 @@
     } catch (e) { toast(e.message); }
   }
 
+  function renderRounds(el) {
+    const rounds = state.rounds || [];
+
+    el.innerHTML = `
+      <div class="page-head">
+        <h2>Rondas</h2>
+        <p>Registe uma nova ronda ou consulte as rondas já efetuadas.</p>
+      </div>
+
+      ${roleCanRound() ? `
+        <section class="card card-pad new-round-card">
+          <div class="new-round-head">
+            <div>
+              <h3>Registar nova ronda</h3>
+              <p>Escolha primeiro o parque ou identifique-o através do QR.</p>
+            </div>
+          </div>
+
+          <div class="round-start-row">
+            <div class="field round-park-field">
+              <label for="roundParkSelect">Parque</label>
+              <select id="roundParkSelect">
+                <option value="">Escolher parque…</option>
+                ${state.parks
+                  .slice()
+                  .sort((a,b)=>a.farmName.localeCompare(b.farmName)||a.code.localeCompare(b.code))
+                  .map(p=>`<option value="${p.id}">${escapeHtml(p.code)} · ${escapeHtml(p.farmName)}${p.name ? " · "+escapeHtml(p.name):""}</option>`)
+                  .join("")}
+              </select>
+            </div>
+
+            <button id="roundQrBtn" class="btn btn-outline round-qr-btn" type="button">
+              <span class="round-qr-icon">▣</span>
+              <span>Ler QR</span>
+            </button>
+          </div>
+
+          <button id="startSelectedRoundBtn" class="btn btn-primary btn-block" type="button" disabled>
+            Iniciar ronda
+          </button>
+        </section>
+      ` : `<div class="alert-box">O seu perfil pode consultar rondas, mas não pode registar novas rondas.</div>`}
+
+      <div class="section-title rounds-history-title">
+        <div>
+          <h3>Rondas efetuadas</h3>
+          <p>${rounds.length} registo${rounds.length===1?"":"s"} encontrado${rounds.length===1?"":"s"}</p>
+        </div>
+      </div>
+
+      <div class="rounds-list">
+        ${rounds.length ? rounds.map(roundHistoryCard).join("") : `<div class="card empty">Ainda não existem rondas registadas.</div>`}
+      </div>
+    `;
+
+    if (roleCanRound()) {
+      const select = document.getElementById("roundParkSelect");
+      const startBtn = document.getElementById("startSelectedRoundBtn");
+      select.addEventListener("change", () => { startBtn.disabled = !select.value; });
+      startBtn.addEventListener("click", () => {
+        const park = state.parks.find(p => p.id === select.value);
+        if (park) renderRoundForm(park);
+      });
+      document.getElementById("roundQrBtn").addEventListener("click", openQrScannerModal);
+    }
+  }
+
+  function roundHistoryCard(r) {
+    const waterBad = r.water && r.water !== "ok";
+    const feedBad = r.feed && r.feed !== "ok";
+    return `
+      <article class="card round-history-card">
+        <div class="round-history-top">
+          <div>
+            <strong>${escapeHtml(r.parkCode)}</strong>
+            <span>${escapeHtml(r.farmName)}${r.parkName ? " · "+escapeHtml(r.parkName):""}</span>
+          </div>
+          <span class="badge badge-green">Concluída</span>
+        </div>
+        <div class="round-history-meta">
+          <span>${escapeHtml(r.completedAtLabel)}</span>
+          <span>${escapeHtml(r.userName)}</span>
+        </div>
+        <div class="round-history-status">
+          <span class="${waterBad ? "round-status-bad":"round-status-ok"}">💧 ${escapeHtml(r.waterLabel || "—")}</span>
+          <span class="${feedBad ? "round-status-bad":"round-status-ok"}">🌾 ${escapeHtml(r.feedLabel || "—")}</span>
+          <span class="${r.infrastructure === "problema" ? "round-status-bad":"round-status-ok"}">🔧 ${r.infrastructure === "problema" ? "Problema":"OK"}</span>
+        </div>
+        ${r.notes ? `<div class="round-history-notes">${escapeHtml(r.notes)}</div>` : ""}
+      </article>`;
+  }
+
+  function openQrScannerModal() {
+    showModal(`
+      <div class="modal-head">
+        <div>
+          <h2>Ler QR do parque</h2>
+          <div style="color:var(--muted);font-size:.82rem">Aponte a câmara para o QR colocado no parque.</div>
+        </div>
+        <button class="icon-btn modal-close" type="button">×</button>
+      </div>
+      <div class="qr-reader-wrap"><div id="qr-reader"></div></div>
+      <div id="modalScanStatus" class="alert-box" style="margin-top:12px">A iniciar câmara…</div>
+    `);
+    setTimeout(startModalScanner, 120);
+  }
+
+  async function startModalScanner() {
+    const status = document.getElementById("modalScanStatus");
+    if (!status) return;
+    if (!window.Html5Qrcode) { status.textContent = "O leitor QR não carregou."; return; }
+    try {
+      await stopScanner();
+      state.scanner = new Html5Qrcode("qr-reader");
+      await state.scanner.start(
+        { facingMode: "environment" },
+        { fps: 8, qrbox: {width:240,height:240} },
+        async decoded => {
+          await stopScanner();
+          closeModal();
+          await handleQrFromRounds(decoded);
+        },
+        () => {}
+      );
+      status.textContent = "Câmara ativa. Aponte para o QR do parque.";
+    } catch { status.textContent = "Não foi possível abrir a câmara."; }
+  }
+
+  async function handleQrFromRounds(text) {
+    try {
+      let token = text.trim();
+      try {
+        const u = new URL(text);
+        token = u.searchParams.get("park") || u.pathname.split("/").filter(Boolean).pop();
+      } catch {}
+      const data = await api("findParkByQr", {qrToken:token});
+      renderRoundForm(data.park);
+    } catch (e) {
+      toast("QR inválido: " + e.message);
+      renderRounds(document.getElementById("page"));
+    }
+  }
+
   function renderScanner(el) {
     if (!roleCanRound()) { el.innerHTML = `<div class="error-box">O seu perfil não tem permissão para registar rondas.</div>`; return; }
     el.innerHTML = `
@@ -647,7 +794,7 @@
       renderRoundForm(data.park);
     } catch (e) {
       toast("QR inválido: " + e.message);
-      navigate("scan");
+      navigate("rounds");
     }
   }
 
@@ -766,7 +913,7 @@
       const result = await api("createRound", payload);
       toast(`Ronda guardada · ${result.incidentsCreated} ocorrência(s) criada(s).`);
       await refreshAll();
-      state.page = "home";
+      state.page = "rounds";
       renderShell();
     } catch (err) {
       toast(err.message);
