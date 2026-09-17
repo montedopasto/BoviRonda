@@ -542,33 +542,53 @@ function deletePark_(session,p) {
 
 function listAdminRecords_(session) {
   requireRole_(session,["admin"]);
-  const parks=indexBy_(listAdminParks_(session),"id");
+
+  const adminParks=listAdminParks_(session);
+  const parks=indexBy_(adminParks,"id");
   const users=indexBy_(rows_(BR.SHEETS.USERS),"ID");
+  const incidentRows=rows_(BR.SHEETS.INCIDENTS);
 
   const rounds=rows_(BR.SHEETS.ROUNDS)
-    .sort((a,b)=>new Date(b.DataHoraFim)-new Date(a.DataHoraFim))
+    .sort((a,b)=>new Date(b.DataHoraFim||b.CriadoEm)-new Date(a.DataHoraFim||a.CriadoEm))
     .map(r=>({
       id:r.ID,
       parkId:r.ParqueID,
-      parkCode:parks[r.ParqueID]?.code||"",
+      parkCode:parks[r.ParqueID]?.code||"(parque removido)",
       farmName:parks[r.ParqueID]?.farmName||"",
-      userName:users[r.UtilizadorID]?.Nome||"",
-      completedAt:r.DataHoraFim,
-      completedAtLabel:dateTimeLabel_(r.DataHoraFim),
-      water:r.Agua,
-      waterLabel:statusText_(r.Agua),
-      feed:r.Comida,
-      feedLabel:statusText_(r.Comida),
+      userName:users[r.UtilizadorID]?.Nome||"(utilizador removido)",
+      completedAt:r.DataHoraFim||r.CriadoEm,
+      completedAtLabel:dateTimeLabel_(r.DataHoraFim||r.CriadoEm),
+      water:r.Agua||"ok",
+      waterLabel:statusText_(r.Agua||"ok"),
+      feed:r.Comida||"ok",
+      feedLabel:statusText_(r.Comida||"ok"),
       infrastructure:r.Infraestrutura||"ok",
       infrastructureType:r.TipoInfraestrutura||"",
       notes:r.Observacoes||""
     }));
 
-  const incidents=listIncidents_(session,{}).map(i=>{
-    const raw=rows_(BR.SHEETS.INCIDENTS).find(x=>x.ID===i.id);
-    i.resolutionNote=raw?.NotaResolucao||"";
-    return i;
-  });
+  const incidents=incidentRows
+    .sort((a,b)=>new Date(b.ReportadoEm||b.AtualizadoEm)-new Date(a.ReportadoEm||a.AtualizadoEm))
+    .map(i=>({
+      id:i.ID,
+      roundId:i.RondaID||"",
+      parkId:i.ParqueID,
+      reportedById:i.ReportadoPorID,
+      category:i.Categoria,
+      type:i.Tipo,
+      typeLabel:incidentTypeText_(i.Tipo),
+      status:i.Estado,
+      statusLabel:statusText_(i.Estado),
+      description:i.Descricao||"",
+      resolutionNote:i.NotaResolucao||"",
+      photoUrl:i.FotoURL||"",
+      reportedAt:i.ReportadoEm||i.AtualizadoEm,
+      reportedAtLabel:dateTimeLabel_(i.ReportadoEm||i.AtualizadoEm),
+      reportedByName:users[i.ReportadoPorID]?.Nome||"(utilizador removido)",
+      parkCode:parks[i.ParqueID]?.code||"(parque removido)",
+      farmId:parks[i.ParqueID]?.farmId||"",
+      farmName:parks[i.ParqueID]?.farmName||""
+    }));
 
   return {rounds,incidents};
 }
@@ -593,14 +613,21 @@ function updateRoundAdmin_(session,p) {
 
 function deleteRoundAdmin_(session,p) {
   requireRole_(session,["admin"]);
+
   const found=findRow_(BR.SHEETS.ROUNDS,"ID",p.roundId);
   if(!found) throw new Error("Ronda não encontrada.");
 
-  const linked=rows_(BR.SHEETS.INCIDENTS).filter(i=>String(i.RondaID)===String(p.roundId));
+  const linked=rows_(BR.SHEETS.INCIDENTS)
+    .filter(i=>String(i.RondaID)===String(p.roundId));
+
   linked.forEach(i=>deleteIncidentCascade_(session,i.ID,false));
+
+  // Remove também referências de fotos diretamente ligadas à ronda.
+  deleteRowsByValue_(BR.SHEETS.PHOTOS,"RondaID",p.roundId);
 
   audit_(session.user.ID,"Ronda",p.roundId,"DELETE",found.object,null);
   sheet_(BR.SHEETS.ROUNDS).deleteRow(found.row);
+
   return {success:true};
 }
 

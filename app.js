@@ -731,18 +731,32 @@
         state.adminIncidents = data.incidents || [];
 
         body.innerHTML = `
+          <div class="card card-pad" style="margin-bottom:14px">
+            <h3 style="margin:0 0 5px">Correção de registos</h3>
+            <p style="margin:0;color:var(--muted);font-size:.84rem">Aqui o Admin pode corrigir ou eliminar rondas e ocorrências criadas por engano. Todas as alterações ficam registadas no AuditLog.</p>
+          </div>
           <div class="filters" style="margin-bottom:12px">
-            <button class="filter-btn active" data-record-type="rounds">Rondas</button>
-            <button class="filter-btn" data-record-type="incidents">Ocorrências</button>
+            <button class="filter-btn active" data-record-type="rounds">Rondas (${state.adminRounds.length})</button>
+            <button class="filter-btn" data-record-type="incidents">Ocorrências (${state.adminIncidents.length})</button>
           </div>
           <div id="recordsBody"></div>`;
 
         const renderRecords = (type) => {
           const box = document.getElementById("recordsBody");
+
           if (type === "rounds") {
-            box.innerHTML = `
+            box.innerHTML = state.adminRounds.length ? `
               <div class="table-wrap"><table>
-                <thead><tr><th>Data</th><th>Parque</th><th>Utilizador</th><th>Água</th><th>Comida</th><th></th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Parque</th>
+                    <th>Utilizador</th>
+                    <th>Água</th>
+                    <th>Comida</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
                 <tbody>
                   ${state.adminRounds.map(r=>`<tr>
                     <td>${escapeHtml(r.completedAtLabel)}</td>
@@ -750,18 +764,46 @@
                     <td>${escapeHtml(r.userName)}</td>
                     <td>${escapeHtml(r.waterLabel)}</td>
                     <td>${escapeHtml(r.feedLabel)}</td>
-                    <td><button class="btn btn-soft edit-round-btn" data-id="${r.id}">Editar</button></td>
+                    <td>
+                      <div style="display:flex;gap:7px;flex-wrap:wrap">
+                        <button class="btn btn-soft edit-round-btn" data-id="${r.id}">Editar</button>
+                        <button class="btn btn-danger delete-round-direct-btn" data-id="${r.id}">Eliminar</button>
+                      </div>
+                    </td>
                   </tr>`).join("")}
                 </tbody>
-              </table></div>`;
+              </table></div>` : `<div class="card empty">Ainda não existem rondas registadas.</div>`;
+
             document.querySelectorAll(".edit-round-btn").forEach(b=>b.addEventListener("click",()=>{
               const rec=state.adminRounds.find(r=>r.id===b.dataset.id);
               if(rec) editRoundModal(rec);
             }));
+
+            document.querySelectorAll(".delete-round-direct-btn").forEach(b=>b.addEventListener("click",async ()=>{
+              const rec=state.adminRounds.find(r=>r.id===b.dataset.id);
+              if(!rec) return;
+              if(!window.confirm(`Eliminar a ronda de ${rec.parkCode} em ${rec.completedAtLabel}? As ocorrências criadas por esta ronda também serão eliminadas.`)) return;
+              try {
+                await api("deleteRoundAdmin",{roundId:rec.id});
+                toast("Ronda eliminada.");
+                loadAdminTab("records");
+                await loadInitialData();
+              } catch(err){ toast(err.message); }
+            }));
+
           } else {
-            box.innerHTML = `
+            box.innerHTML = state.adminIncidents.length ? `
               <div class="table-wrap"><table>
-                <thead><tr><th>Data</th><th>Parque</th><th>Tipo</th><th>Estado</th><th>Reportado por</th><th></th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Parque</th>
+                    <th>Tipo</th>
+                    <th>Estado</th>
+                    <th>Reportado por</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
                 <tbody>
                   ${state.adminIncidents.map(i=>`<tr>
                     <td>${escapeHtml(i.reportedAtLabel)}</td>
@@ -769,13 +811,31 @@
                     <td>${escapeHtml(i.typeLabel)}</td>
                     <td>${escapeHtml(i.statusLabel)}</td>
                     <td>${escapeHtml(i.reportedByName)}</td>
-                    <td><button class="btn btn-soft edit-incident-admin-btn" data-id="${i.id}">Editar</button></td>
+                    <td>
+                      <div style="display:flex;gap:7px;flex-wrap:wrap">
+                        <button class="btn btn-soft edit-incident-admin-btn" data-id="${i.id}">Editar</button>
+                        <button class="btn btn-danger delete-incident-direct-btn" data-id="${i.id}">Eliminar</button>
+                      </div>
+                    </td>
                   </tr>`).join("")}
                 </tbody>
-              </table></div>`;
+              </table></div>` : `<div class="card empty">Ainda não existem ocorrências registadas.</div>`;
+
             document.querySelectorAll(".edit-incident-admin-btn").forEach(b=>b.addEventListener("click",()=>{
               const rec=state.adminIncidents.find(i=>i.id===b.dataset.id);
               if(rec) editIncidentAdminModal(rec);
+            }));
+
+            document.querySelectorAll(".delete-incident-direct-btn").forEach(b=>b.addEventListener("click",async ()=>{
+              const rec=state.adminIncidents.find(i=>i.id===b.dataset.id);
+              if(!rec) return;
+              if(!window.confirm(`Eliminar a ocorrência "${rec.typeLabel}" do parque ${rec.parkCode}?`)) return;
+              try {
+                await api("deleteIncidentAdmin",{incidentId:rec.id});
+                toast("Ocorrência eliminada.");
+                loadAdminTab("records");
+                await loadInitialData();
+              } catch(err){ toast(err.message); }
             }));
           }
         };
@@ -784,6 +844,7 @@
           document.querySelectorAll("[data-record-type]").forEach(x=>x.classList.toggle("active",x===btn));
           renderRecords(btn.dataset.recordType);
         }));
+
         renderRecords("rounds");
       } else {
         body.innerHTML = `<div class="card card-pad"><h3 style="margin-top:0">QR Codes dos parques</h3><p style="color:var(--muted)">Cada parque tem um token permanente. Alterar o nome ou o código visível não invalida o QR.</p><div class="list">${state.parks.filter(p=>p.active!==false).map(p=>`<button class="list-item show-qr" data-id="${p.id}" style="width:100%;text-align:left"><div class="list-main"><strong>${escapeHtml(p.code)}</strong><span>${escapeHtml(p.farmName)}</span></div><span>▣</span></button>`).join("")}</div></div>`;

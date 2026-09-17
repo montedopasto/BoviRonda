@@ -1,0 +1,17 @@
+BoviRonda v1.4 — Registos corrigidos
+
+- Admin > Registos fica disponível ao lado de Utilizadores, Parques e QR Codes.
+- Separação entre Rondas e Ocorrências.
+- Botão Editar direto na tabela.
+- Botão Eliminar direto na tabela.
+- Eliminar ronda remove também ocorrências e referências de fotos associadas.
+- Eliminar ocorrência remove Veterinaria, Necropsias e Fotos associados.
+- Listagem de registos tornada mais robusta.
+- Cache da PWA atualizado para v1.4 para evitar que o browser continue a mostrar a versão anterior.
+- Todas as correções/remoções continuam registadas no AuditLog.
+
+IMPORTANTE:
+1. Substituir os ficheiros no GitHub.
+2. Substituir o Code.gs no Apps Script.
+3. Implementar > Gerir implementações > Editar > Nova versão > Implementar.
+4. Atualizar a página da BoviRonda. Se necessário, fechar e voltar a abrir a app instalada.
