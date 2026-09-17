@@ -37,7 +37,7 @@ Pode usar o ficheiro `BoviRonda_GoogleSheet_Template.xlsx` incluído no ZIP:
 
 1. Crie uma Google Sheet vazia.
 2. Abra **Extensões > Apps Script**.
-3. Cole o conteúdo de `google-apps-script/Code.gs`.
+3. Cole o conteúdo de `Code.gs`.
 4. Guarde.
 5. Execute manualmente a função:
 
@@ -106,8 +106,6 @@ Faça upload destes ficheiros na raiz:
 
 Pode também guardar as pastas:
 
-- google-apps-script/
-- google-sheet-template/
 
 mas estes dois não são necessários para o GitHub Pages funcionar.
 

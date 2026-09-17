@@ -1,0 +1,15 @@
+BoviRonda v1.2
+
+NOVO:
+- Logótipo oficial Monte do Pasto integrado no login, cabeçalho e versão desktop.
+- Admin > Parques permite editar código, nome e exploração.
+- Admin pode colocar parques como Disponíveis / Indisponíveis.
+- Parques indisponíveis deixam de aparecer nas rondas e o QR deixa de os abrir.
+- O histórico dos parques indisponíveis é preservado.
+- Admin pode eliminar definitivamente um parque apenas se ainda não tiver rondas nem ocorrências.
+- Se existir histórico, a app obriga a usar o estado Indisponível em vez de eliminar.
+
+IMPORTANTE:
+1. Substituir os ficheiros no GitHub, incluindo a nova pasta /assets.
+2. Substituir o Code.gs no Apps Script.
+3. Apps Script > Implementar > Gerir implementações > Editar > Nova versão > Implementar.

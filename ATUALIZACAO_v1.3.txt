@@ -1,0 +1,20 @@
+BoviRonda v1.3
+
+NOVO:
+- Código do parque atribuído automaticamente:
+  Monte Ruivo: MR-001, MR-002, MR-003...
+  Trolho: TR-001, TR-002, TR-003...
+- O Admin já não escreve o código ao criar um parque.
+- O código fica fixo depois da criação.
+- Novo separador Admin > Registos.
+- Admin pode corrigir rondas.
+- Admin pode eliminar rondas.
+- Ao eliminar uma ronda, as ocorrências criadas por essa ronda também são eliminadas.
+- Admin pode corrigir ocorrências.
+- Admin pode eliminar ocorrências.
+- Registos veterinários e necrópsias associados são eliminados em cascata.
+- Correções e eliminações são registadas no AuditLog.
+
+IMPORTANTE:
+Depois de atualizar Code.gs:
+Implementar > Gerir implementações > Editar > Nova versão > Implementar.

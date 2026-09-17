@@ -126,7 +126,7 @@
       <main class="login-screen">
         <section class="card login-card">
           <div class="login-brand">
-            <div class="brand-mark">BR</div>
+            <img class="login-logo" src="monte-do-pasto-logo.png" alt="Monte do Pasto">
             <h1>BoviRonda</h1>
             <p>Monte do Pasto · Rondas de campo</p>
           </div>
@@ -178,9 +178,9 @@
       <div class="desktop-layout">
         <aside class="desktop-sidebar">
           <div class="sidebar-brand">
-            <div class="brand-mark">BR</div>
+            <img class="sidebar-logo" src="monte-do-pasto-logo.png" alt="Monte do Pasto">
             <h2>BoviRonda</h2>
-            <small style="opacity:.65">Monte do Pasto</small>
+            <small style="opacity:.65">Rondas de campo</small>
           </div>
           <nav class="sidebar-nav">
             ${nav.map(([p,i,l]) => `<button class="sidebar-btn ${state.page===p?'active':''}" data-page="${p}">${i} &nbsp; ${l}</button>`).join("")}
@@ -190,7 +190,7 @@
           <main class="container">
             <header class="topbar">
               <div class="brand">
-                <div class="brand-mark mobile-only">BR</div>
+                <img class="topbar-logo mobile-only" src="monte-do-pasto-logo.png" alt="Monte do Pasto">
                 <div>
                   <h1>${escapeHtml(C.APP_NAME || "BoviRonda")}</h1>
                   <p>${escapeHtml(state.profile.fullName)} · ${ROLE_LABELS[state.profile.role] || state.profile.role}</p>
@@ -672,6 +672,7 @@
         <button class="filter-btn active" data-admin-tab="users">Utilizadores</button>
         <button class="filter-btn" data-admin-tab="parks">Parques</button>
         <button class="filter-btn" data-admin-tab="qr">QR Codes</button>
+        <button class="filter-btn" data-admin-tab="records">Registos</button>
       </div>
       <div id="adminBody" style="margin-top:14px"><div class="card empty">A carregar…</div></div>`;
     document.querySelectorAll("[data-admin-tab]").forEach(b => b.addEventListener("click", () => {
@@ -704,16 +705,89 @@
           if (user) editUserModal(user);
         }));
       } else if (tab === "parks") {
+        const adminParks = await api("listAdminParks");
+        state.adminParks = adminParks;
         body.innerHTML = `
           <button id="addParkBtn" class="btn btn-primary" style="margin-bottom:12px">+ Novo parque</button>
-          <div class="table-wrap"><table><thead><tr><th>Código</th><th>Nome</th><th>Exploração</th><th>QR</th></tr></thead><tbody>
-          ${state.parks.map(p=>`<tr><td>${escapeHtml(p.code)}</td><td>${escapeHtml(p.name||"")}</td><td>${escapeHtml(p.farmName)}</td><td><button class="btn btn-soft show-qr" data-id="${p.id}">Ver QR</button></td></tr>`).join("")}
+          <div class="table-wrap"><table><thead><tr><th>Código</th><th>Nome</th><th>Exploração</th><th>Estado</th><th>QR</th><th></th></tr></thead><tbody>
+          ${adminParks.map(p=>`<tr>
+            <td>${escapeHtml(p.code)}</td>
+            <td>${escapeHtml(p.name||"")}</td>
+            <td>${escapeHtml(p.farmName)}</td>
+            <td>${p.active?'<span class="badge badge-green">Disponível</span>':'<span class="badge badge-grey">Indisponível</span>'}</td>
+            <td><button class="btn btn-soft show-qr" data-id="${p.id}" ${p.active?"":"disabled"}>Ver QR</button></td>
+            <td><button class="btn btn-soft edit-park-btn" data-id="${p.id}">Editar</button></td>
+          </tr>`).join("")}
           </tbody></table></div>`;
         document.getElementById("addParkBtn").addEventListener("click", newParkModal);
-        document.querySelectorAll(".show-qr").forEach(b=>b.addEventListener("click",()=>showParkQr(b.dataset.id)));
+        document.querySelectorAll(".show-qr").forEach(b=>b.addEventListener("click",()=>showParkQr(b.dataset.id, adminParks)));
+        document.querySelectorAll(".edit-park-btn").forEach(b=>b.addEventListener("click",()=>{
+          const park=adminParks.find(p=>p.id===b.dataset.id);
+          if(park) editParkModal(park);
+        }));
+      } else if (tab === "records") {
+        const data = await api("listAdminRecords");
+        state.adminRounds = data.rounds || [];
+        state.adminIncidents = data.incidents || [];
+
+        body.innerHTML = `
+          <div class="filters" style="margin-bottom:12px">
+            <button class="filter-btn active" data-record-type="rounds">Rondas</button>
+            <button class="filter-btn" data-record-type="incidents">Ocorrências</button>
+          </div>
+          <div id="recordsBody"></div>`;
+
+        const renderRecords = (type) => {
+          const box = document.getElementById("recordsBody");
+          if (type === "rounds") {
+            box.innerHTML = `
+              <div class="table-wrap"><table>
+                <thead><tr><th>Data</th><th>Parque</th><th>Utilizador</th><th>Água</th><th>Comida</th><th></th></tr></thead>
+                <tbody>
+                  ${state.adminRounds.map(r=>`<tr>
+                    <td>${escapeHtml(r.completedAtLabel)}</td>
+                    <td>${escapeHtml(r.parkCode)} · ${escapeHtml(r.farmName)}</td>
+                    <td>${escapeHtml(r.userName)}</td>
+                    <td>${escapeHtml(r.waterLabel)}</td>
+                    <td>${escapeHtml(r.feedLabel)}</td>
+                    <td><button class="btn btn-soft edit-round-btn" data-id="${r.id}">Editar</button></td>
+                  </tr>`).join("")}
+                </tbody>
+              </table></div>`;
+            document.querySelectorAll(".edit-round-btn").forEach(b=>b.addEventListener("click",()=>{
+              const rec=state.adminRounds.find(r=>r.id===b.dataset.id);
+              if(rec) editRoundModal(rec);
+            }));
+          } else {
+            box.innerHTML = `
+              <div class="table-wrap"><table>
+                <thead><tr><th>Data</th><th>Parque</th><th>Tipo</th><th>Estado</th><th>Reportado por</th><th></th></tr></thead>
+                <tbody>
+                  ${state.adminIncidents.map(i=>`<tr>
+                    <td>${escapeHtml(i.reportedAtLabel)}</td>
+                    <td>${escapeHtml(i.parkCode)} · ${escapeHtml(i.farmName)}</td>
+                    <td>${escapeHtml(i.typeLabel)}</td>
+                    <td>${escapeHtml(i.statusLabel)}</td>
+                    <td>${escapeHtml(i.reportedByName)}</td>
+                    <td><button class="btn btn-soft edit-incident-admin-btn" data-id="${i.id}">Editar</button></td>
+                  </tr>`).join("")}
+                </tbody>
+              </table></div>`;
+            document.querySelectorAll(".edit-incident-admin-btn").forEach(b=>b.addEventListener("click",()=>{
+              const rec=state.adminIncidents.find(i=>i.id===b.dataset.id);
+              if(rec) editIncidentAdminModal(rec);
+            }));
+          }
+        };
+
+        document.querySelectorAll("[data-record-type]").forEach(btn=>btn.addEventListener("click",()=>{
+          document.querySelectorAll("[data-record-type]").forEach(x=>x.classList.toggle("active",x===btn));
+          renderRecords(btn.dataset.recordType);
+        }));
+        renderRecords("rounds");
       } else {
-        body.innerHTML = `<div class="card card-pad"><h3 style="margin-top:0">QR Codes dos parques</h3><p style="color:var(--muted)">Cada parque tem um token permanente. Alterar o nome ou o código visível não invalida o QR.</p><div class="list">${state.parks.map(p=>`<button class="list-item show-qr" data-id="${p.id}" style="width:100%;text-align:left"><div class="list-main"><strong>${escapeHtml(p.code)}</strong><span>${escapeHtml(p.farmName)}</span></div><span>▣</span></button>`).join("")}</div></div>`;
-        document.querySelectorAll(".show-qr").forEach(b=>b.addEventListener("click",()=>showParkQr(b.dataset.id)));
+        body.innerHTML = `<div class="card card-pad"><h3 style="margin-top:0">QR Codes dos parques</h3><p style="color:var(--muted)">Cada parque tem um token permanente. Alterar o nome ou o código visível não invalida o QR.</p><div class="list">${state.parks.filter(p=>p.active!==false).map(p=>`<button class="list-item show-qr" data-id="${p.id}" style="width:100%;text-align:left"><div class="list-main"><strong>${escapeHtml(p.code)}</strong><span>${escapeHtml(p.farmName)}</span></div><span>▣</span></button>`).join("")}</div></div>`;
+        document.querySelectorAll(".show-qr").forEach(b=>b.addEventListener("click",()=>showParkQr(b.dataset.id, state.parks)));
       }
     } catch(e) { body.innerHTML = `<div class="error-box">${escapeHtml(e.message)}</div>`; }
   }
@@ -804,22 +878,198 @@
     showModal(`
       <div class="modal-head"><h2>Novo parque</h2><button class="icon-btn modal-close">×</button></div>
       <form id="newParkForm" class="form-grid">
-        <div class="field"><label>Código</label><input id="newParkCode" required placeholder="MR-01"></div>
-        <div class="field"><label>Nome</label><input id="newParkName"></div>
+        <div class="field"><label>Nome</label><input id="newParkName" placeholder="Ex.: Novilhas Norte"></div>
         <div class="field"><label>Exploração</label><select id="newFarm"><option>Monte Ruivo</option><option>Trolho</option></select></div>
+        <div class="success-box">O código do parque é atribuído automaticamente pela BoviRonda.</div>
         <button class="btn btn-primary" type="submit">Criar parque</button>
       </form>`);
     document.getElementById("newParkForm").addEventListener("submit", async e=>{
       e.preventDefault();
       try {
-        await api("createPark",{code:newParkCode.value.trim(),name:newParkName.value.trim(),farmName:newFarm.value});
-        toast("Parque criado e QR associado."); closeModal(); await refreshAll(); state.page="admin"; renderShell();
+        const result = await api("createPark",{name:newParkName.value.trim(),farmName:newFarm.value});
+        toast(`Parque criado: ${result.code}`);
+        closeModal();
+        await refreshAll();
+        state.page="admin";
+        renderShell();
+        setTimeout(()=>loadAdminTab("parks"),30);
       } catch(err){toast(err.message)}
     });
   }
 
-  function showParkQr(id) {
-    const p = state.parks.find(x=>x.id===id); if(!p)return;
+  function editParkModal(park) {
+    showModal(`
+      <div class="modal-head">
+        <div><h2>Editar parque</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(park.code)}</div></div>
+        <button class="icon-btn modal-close" type="button">×</button>
+      </div>
+      <form id="editParkForm" class="form-grid">
+        <div class="field"><label>Código</label><input id="editParkCode" value="${escapeHtml(park.code)}" readonly></div>
+        <div class="field"><label>Nome</label><input id="editParkName" value="${escapeHtml(park.name||"")}"></div>
+        <div class="field"><label>Exploração</label>
+          <select id="editParkFarm">
+            <option value="Monte Ruivo" ${park.farmName==="Monte Ruivo"?"selected":""}>Monte Ruivo</option>
+            <option value="Trolho" ${park.farmName==="Trolho"?"selected":""}>Trolho</option>
+          </select>
+        </div>
+        <div class="field"><label>Estado</label>
+          <select id="editParkActive">
+            <option value="true" ${park.active?"selected":""}>Disponível</option>
+            <option value="false" ${!park.active?"selected":""}>Indisponível</option>
+          </select>
+        </div>
+        <div class="alert-box">Ao colocar um parque como indisponível, deixa de aparecer nas rondas e o respetivo QR deixa de abrir esse parque. O histórico é mantido.</div>
+        <button class="btn btn-primary btn-block" type="submit">Guardar alterações</button>
+        <button id="deleteParkBtn" class="btn btn-danger btn-block" type="button">Eliminar parque</button>
+      </form>
+    `);
+
+    document.getElementById("editParkForm").addEventListener("submit", async e => {
+      e.preventDefault();
+      try {
+        await api("updatePark",{
+          parkId:park.id,
+          name:document.getElementById("editParkName").value.trim(),
+          farmName:document.getElementById("editParkFarm").value,
+          active:document.getElementById("editParkActive").value==="true"
+        });
+        toast("Parque atualizado.");
+        closeModal();
+        await refreshAll();
+        state.page="admin";
+        renderShell();
+        setTimeout(()=>loadAdminTab("parks"),30);
+      } catch(err){toast(err.message)}
+    });
+
+    document.getElementById("deleteParkBtn").addEventListener("click", async () => {
+      const ok = window.confirm(`Eliminar definitivamente o parque ${park.code}? Só é possível se ainda não tiver rondas nem ocorrências.`);
+      if(!ok) return;
+      try {
+        await api("deletePark",{parkId:park.id});
+        toast("Parque eliminado.");
+        closeModal();
+        await refreshAll();
+        state.page="admin";
+        renderShell();
+        setTimeout(()=>loadAdminTab("parks"),30);
+      } catch(err){toast(err.message)}
+    });
+  }
+
+  function editRoundModal(round) {
+    showModal(`
+      <div class="modal-head">
+        <div><h2>Editar ronda</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(round.parkCode)} · ${escapeHtml(round.completedAtLabel)}</div></div>
+        <button class="icon-btn modal-close" type="button">×</button>
+      </div>
+      <form id="editRoundForm" class="form-grid">
+        <div class="field"><label>Água</label>
+          <select id="editRoundWater">
+            <option value="ok" ${round.water==="ok"?"selected":""}>OK</option>
+            <option value="sem_agua" ${round.water==="sem_agua"?"selected":""}>Sem água</option>
+            <option value="problema_bebedouro" ${round.water==="problema_bebedouro"?"selected":""}>Problema no bebedouro</option>
+          </select>
+        </div>
+        <div class="field"><label>Comida</label>
+          <select id="editRoundFeed">
+            <option value="ok" ${round.feed==="ok"?"selected":""}>OK</option>
+            <option value="sem_comida" ${round.feed==="sem_comida"?"selected":""}>Sem comida</option>
+            <option value="insuficiente" ${round.feed==="insuficiente"?"selected":""}>Insuficiente</option>
+          </select>
+        </div>
+        <div class="field"><label>Infraestrutura</label>
+          <select id="editRoundInfra">
+            <option value="ok" ${round.infrastructure==="ok"?"selected":""}>OK</option>
+            <option value="problema" ${round.infrastructure==="problema"?"selected":""}>Problema</option>
+          </select>
+        </div>
+        <div class="field"><label>Tipo de infraestrutura</label><input id="editRoundInfraType" value="${escapeHtml(round.infrastructureType||"")}"></div>
+        <div class="field"><label>Observações</label><textarea id="editRoundNotes">${escapeHtml(round.notes||"")}</textarea></div>
+        <div class="alert-box">A correção fica registada no AuditLog.</div>
+        <button class="btn btn-primary btn-block" type="submit">Guardar correção</button>
+        <button id="deleteRoundBtn" class="btn btn-danger btn-block" type="button">Eliminar ronda</button>
+      </form>`);
+
+    document.getElementById("editRoundForm").addEventListener("submit", async e=>{
+      e.preventDefault();
+      try {
+        await api("updateRoundAdmin",{
+          roundId:round.id,
+          water:document.getElementById("editRoundWater").value,
+          feed:document.getElementById("editRoundFeed").value,
+          infrastructure:document.getElementById("editRoundInfra").value,
+          infrastructureType:document.getElementById("editRoundInfraType").value.trim(),
+          notes:document.getElementById("editRoundNotes").value.trim()
+        });
+        toast("Ronda corrigida.");
+        closeModal();
+        loadAdminTab("records");
+        await loadInitialData();
+      } catch(err){toast(err.message)}
+    });
+
+    document.getElementById("deleteRoundBtn").addEventListener("click", async ()=>{
+      if(!window.confirm("Eliminar esta ronda? As ocorrências criadas por esta ronda também serão eliminadas.")) return;
+      try {
+        await api("deleteRoundAdmin",{roundId:round.id});
+        toast("Ronda eliminada.");
+        closeModal();
+        loadAdminTab("records");
+        await loadInitialData();
+      } catch(err){toast(err.message)}
+    });
+  }
+
+  function editIncidentAdminModal(incident) {
+    showModal(`
+      <div class="modal-head">
+        <div><h2>Editar ocorrência</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(incident.parkCode)} · ${escapeHtml(incident.typeLabel)}</div></div>
+        <button class="icon-btn modal-close" type="button">×</button>
+      </div>
+      <form id="editIncidentAdminForm" class="form-grid">
+        <div class="field"><label>Estado</label>
+          <select id="editIncidentStatus">
+            ${["aberta","em_resolucao","por_observar","em_tratamento","em_acompanhamento","resolvida"].map(s=>`<option value="${s}" ${incident.status===s?"selected":""}>${statusLabel(s)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field"><label>Descrição</label><textarea id="editIncidentDescription">${escapeHtml(incident.description||"")}</textarea></div>
+        <div class="field"><label>Nota de resolução</label><textarea id="editIncidentResolutionNote">${escapeHtml(incident.resolutionNote||"")}</textarea></div>
+        <div class="alert-box">A correção fica registada no AuditLog.</div>
+        <button class="btn btn-primary btn-block" type="submit">Guardar correção</button>
+        <button id="deleteIncidentBtn" class="btn btn-danger btn-block" type="button">Eliminar ocorrência</button>
+      </form>`);
+
+    document.getElementById("editIncidentAdminForm").addEventListener("submit", async e=>{
+      e.preventDefault();
+      try {
+        await api("updateIncidentAdmin",{
+          incidentId:incident.id,
+          status:document.getElementById("editIncidentStatus").value,
+          description:document.getElementById("editIncidentDescription").value.trim(),
+          resolutionNote:document.getElementById("editIncidentResolutionNote").value.trim()
+        });
+        toast("Ocorrência corrigida.");
+        closeModal();
+        loadAdminTab("records");
+        await loadInitialData();
+      } catch(err){toast(err.message)}
+    });
+
+    document.getElementById("deleteIncidentBtn").addEventListener("click", async ()=>{
+      if(!window.confirm("Eliminar esta ocorrência? Os registos veterinários/necrópsia associados também serão eliminados.")) return;
+      try {
+        await api("deleteIncidentAdmin",{incidentId:incident.id});
+        toast("Ocorrência eliminada.");
+        closeModal();
+        loadAdminTab("records");
+        await loadInitialData();
+      } catch(err){toast(err.message)}
+    });
+  }
+
+  function showParkQr(id, sourceList=state.parks) {
+    const p = sourceList.find(x=>x.id===id); if(!p)return;
     showModal(`
       <div class="modal-head"><h2>QR · ${escapeHtml(p.code)}</h2><button class="icon-btn modal-close">×</button></div>
       <div class="card qr-card">

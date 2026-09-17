@@ -1,0 +1,23 @@
+BoviRonda — Estrutura GitHub simplificada
+
+Colocar TODOS estes ficheiros diretamente na raiz do repositório:
+
+index.html
+styles.css
+app.js
+config.js
+manifest.json
+sw.js
+monte-do-pasto-logo.png
+Code.gs
+BoviRonda_GoogleSheet_Template.xlsx
+README.md
+INSTALACAO_RAPIDA.txt
+
+Sem pastas.
+
+No GitHub Pages:
+Settings > Pages > Deploy from branch > main > /(root)
+
+O Code.gs não é usado pelo GitHub Pages.
+Serve apenas para copiar para Extensões > Apps Script da Google Sheet.

@@ -2,7 +2,7 @@ BOVIRONDA — INSTALAÇÃO RÁPIDA
 
 1. Google Drive > criar Google Sheet vazia.
 2. Extensões > Apps Script.
-3. Colar google-apps-script/Code.gs.
+3. Colar Code.gs.
 4. Executar setupBoviRonda() uma vez.
 5. Implementar como Web App e copiar o URL /exec.
 6. Editar config.js e colar esse URL em API_URL.
@@ -11,4 +11,4 @@ BOVIRONDA — INSTALAÇÃO RÁPIDA
 9. Primeiro login: admin / 1234.
 
 A Sheet modelo XLSX está em:
-google-sheet-template/BoviRonda_GoogleSheet_Template.xlsx
+BoviRonda_GoogleSheet_Template.xlsx

@@ -159,3 +159,33 @@ tr:last-child td{border-bottom:0}
   .mobile-only{display:none!important}
 }
 @media (max-width:999px){.desktop-sidebar{display:none}}
+
+
+.brand-logo{
+  width:54px;
+  height:54px;
+  object-fit:contain;
+  flex:0 0 auto;
+}
+.login-logo{
+  display:block;
+  width:min(240px,72%);
+  height:auto;
+  margin:0 auto 16px;
+  object-fit:contain;
+}
+.sidebar-logo{
+  width:145px;
+  max-width:100%;
+  height:auto;
+  object-fit:contain;
+  filter:brightness(0) invert(1);
+}
+.topbar-logo{
+  width:62px;
+  height:46px;
+  object-fit:contain;
+}
+@media (max-width:699px){
+  .topbar-logo{width:54px;height:42px}
+}
