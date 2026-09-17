@@ -1,0 +1,9 @@
+{
+  "name": "BoviRonda · Monte do Pasto",
+  "short_name": "BoviRonda",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f7f5",
+  "theme_color": "#173f32",
+  "icons": []
+}
