@@ -1,0 +1,14 @@
+BoviRonda v1.7.1 — Importação massiva corrigida
+
+- A importação em massa deixa de usar bulkCreateParks.
+- Passa a usar a ação createPark, já existente e funcional.
+- A app cria automaticamente cada parque, um a um, em sequência.
+- Mantém códigos automáticos MR-xxx / TR-xxx e QRToken via backend.
+- Mostra progresso, criados, ignorados e erros.
+- Não exige nova ação no Apps Script.
+
+Nesta versão basta atualizar no GitHub:
+- app.js
+- sw.js
+
+O Code.gs pode ficar como está.

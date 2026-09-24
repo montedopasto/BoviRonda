@@ -1448,30 +1448,69 @@
 
   async function runBulkParkImport(items) {
     const resultBox = document.getElementById("bulkImportResult");
+
+    if (!Array.isArray(items) || !items.length) {
+      resultBox.className = "error-box";
+      resultBox.textContent = "Não existem parques para importar.";
+      return;
+    }
+
+    if (items.length > 500) {
+      resultBox.className = "error-box";
+      resultBox.textContent = "Máximo de 500 parques por importação.";
+      return;
+    }
+
     resultBox.className = "alert-box";
-    resultBox.textContent = "A importar parques…";
+    resultBox.textContent = `A importar 0 de ${items.length} parques…`;
+
+    let created = 0;
+    let skipped = 0;
+    const errors = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i] || {};
+      const farmName = String(item.farmName || "").trim();
+      const name = String(item.name || "").trim();
+
+      resultBox.textContent = `A importar ${i + 1} de ${items.length} parques…`;
+
+      if (!farmName) {
+        skipped++;
+        errors.push({ line: `Linha ${i + 1}`, error: "Exploração em falta" });
+        continue;
+      }
+
+      try {
+        await api("createPark", { name, farmName });
+        created++;
+      } catch (err) {
+        skipped++;
+        errors.push({
+          line: `Linha ${i + 1}`,
+          error: err.message || String(err)
+        });
+      }
+    }
+
+    resultBox.className = errors.length ? "alert-box" : "success-box";
+    resultBox.innerHTML = `
+      <strong>Importação concluída</strong>
+      <div style="margin-top:6px">
+        Criados: ${created}<br>
+        Ignorados: ${skipped}<br>
+        Erros: ${errors.length}
+      </div>
+      ${errors.length ? `
+        <div style="margin-top:8px;font-size:.78rem">
+          ${errors.slice(0,20).map(e => `${escapeHtml(e.line)} — ${escapeHtml(e.error)}`).join("<br>")}
+        </div>
+      ` : ""}
+    `;
 
     try {
-      const result = await api("bulkCreateParks", {items});
-      resultBox.className = "success-box";
-      resultBox.innerHTML = `
-        <strong>Importação concluída</strong>
-        <div style="margin-top:6px">
-          Criados: ${result.created}<br>
-          Ignorados: ${result.skipped}<br>
-          Erros: ${result.errors.length}
-        </div>
-        ${result.errors.length ? `
-          <div style="margin-top:8px;font-size:.78rem">
-            ${result.errors.slice(0,10).map(e => `${escapeHtml(e.line)} — ${escapeHtml(e.error)}`).join("<br>")}
-          </div>
-        ` : ""}
-      `;
       await loadInitialData();
-    } catch (err) {
-      resultBox.className = "error-box";
-      resultBox.textContent = err.message;
-    }
+    } catch {}
   }
 
   function newParkModal() {
