@@ -1,0 +1,12 @@
+BoviRonda v1.7 — Importação massiva de parques
+
+- Novo botão Admin > Parques > Importar parques em massa.
+- Colar lista: Exploração | Nome.
+- Importar CSV: colunas Exploracao e Nome.
+- Códigos e QRToken gerados automaticamente.
+- Mantém sequência existente de MR-xxx e TR-xxx.
+- Até 500 parques por importação.
+- Incluído MODELO_IMPORTACAO_PARQUES.csv.
+
+Atualizar app.js, styles.css, sw.js e Code.gs.
+Depois publicar nova versão do Apps Script.

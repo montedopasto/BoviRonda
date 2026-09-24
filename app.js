@@ -1130,7 +1130,10 @@
         const adminParks = await api("listAdminParks");
         state.adminParks = adminParks;
         body.innerHTML = `
-          <button id="addParkBtn" class="btn btn-primary" style="margin-bottom:12px">+ Novo parque</button>
+          <div class="admin-action-row" style="margin-bottom:12px">
+          <button id="addParkBtn" class="btn btn-primary">+ Novo parque</button>
+          <button id="bulkParkBtn" class="btn btn-outline">⇩ Importar parques em massa</button>
+        </div>
           <div class="table-wrap"><table><thead><tr><th>Código</th><th>Nome</th><th>Exploração</th><th>Estado</th><th>QR</th><th></th></tr></thead><tbody>
           ${adminParks.map(p=>`<tr>
             <td>${escapeHtml(p.code)}</td>
@@ -1142,6 +1145,7 @@
           </tr>`).join("")}
           </tbody></table></div>`;
         document.getElementById("addParkBtn").addEventListener("click", newParkModal);
+        document.getElementById("bulkParkBtn").addEventListener("click", bulkParkImportModal);
         document.querySelectorAll(".show-qr").forEach(b=>b.addEventListener("click",()=>showParkQr(b.dataset.id, adminParks)));
         document.querySelectorAll(".edit-park-btn").forEach(b=>b.addEventListener("click",()=>{
           const park=adminParks.find(p=>p.id===b.dataset.id);
@@ -1355,6 +1359,119 @@
         loadAdminTab("users");
       } catch(err){toast(err.message)}
     });
+  }
+
+  function bulkParkImportModal() {
+    showModal(`
+      <div class="modal-head">
+        <div>
+          <h2>Importar parques em massa</h2>
+          <div style="color:var(--muted);font-size:.82rem">Crie vários parques de uma só vez.</div>
+        </div>
+        <button class="icon-btn modal-close" type="button">×</button>
+      </div>
+
+      <div class="form-grid">
+        <section class="card card-pad">
+          <h3 style="margin-top:0">Opção 1 · Colar lista</h3>
+          <p style="margin-top:0;color:var(--muted);font-size:.82rem">
+            Uma linha por parque no formato: <strong>Exploração | Nome</strong>
+          </p>
+          <div class="field">
+            <label>Lista de parques</label>
+            <textarea id="bulkParkText" rows="10" placeholder="Monte Ruivo | Novilhas Norte&#10;Monte Ruivo | Engorda 1&#10;Trolho | Vacas 3"></textarea>
+          </div>
+          <button id="bulkPasteImportBtn" class="btn btn-primary btn-block" type="button">Importar lista</button>
+        </section>
+
+        <section class="card card-pad">
+          <h3 style="margin-top:0">Opção 2 · CSV</h3>
+          <p style="margin-top:0;color:var(--muted);font-size:.82rem">
+            Ficheiro com as colunas <strong>Exploracao</strong> e <strong>Nome</strong>.
+          </p>
+          <div class="field">
+            <label>Ficheiro CSV</label>
+            <input id="bulkCsvFile" type="file" accept=".csv,text/csv">
+          </div>
+          <button id="bulkCsvImportBtn" class="btn btn-outline btn-block" type="button">Importar CSV</button>
+        </section>
+
+        <div class="success-box">
+          Os códigos são criados automaticamente. Ex.: MR-001, MR-002… e TR-001, TR-002…
+        </div>
+
+        <div id="bulkImportResult" class="hidden"></div>
+      </div>
+    `);
+
+    document.getElementById("bulkPasteImportBtn").addEventListener("click", async () => {
+      const raw = document.getElementById("bulkParkText").value.trim();
+      if (!raw) { toast("Cole primeiro a lista de parques."); return; }
+
+      const items = raw.split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => {
+          const parts = line.split("|").map(x => x.trim());
+          return { farmName: parts[0] || "", name: parts.slice(1).join(" | ").trim() };
+        });
+
+      await runBulkParkImport(items);
+    });
+
+    document.getElementById("bulkCsvImportBtn").addEventListener("click", async () => {
+      const file = document.getElementById("bulkCsvFile").files?.[0];
+      if (!file) { toast("Selecione um ficheiro CSV."); return; }
+
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter(x => x.trim());
+      if (lines.length < 2) { toast("CSV vazio ou inválido."); return; }
+
+      const sep = lines[0].includes(";") ? ";" : ",";
+      const headers = lines[0].split(sep).map(x => x.trim().replace(/^"|"$/g,"").toLowerCase());
+      const farmIdx = headers.findIndex(h => ["exploracao","exploração","farm"].includes(h));
+      const nameIdx = headers.findIndex(h => ["nome","name"].includes(h));
+
+      if (farmIdx < 0 || nameIdx < 0) {
+        toast("O CSV deve ter as colunas Exploracao e Nome.");
+        return;
+      }
+
+      const items = lines.slice(1).map(line => {
+        const cols = line.split(sep).map(x => x.trim().replace(/^"|"$/g,""));
+        return { farmName: cols[farmIdx] || "", name: cols[nameIdx] || "" };
+      }).filter(x => x.farmName || x.name);
+
+      await runBulkParkImport(items);
+    });
+  }
+
+  async function runBulkParkImport(items) {
+    const resultBox = document.getElementById("bulkImportResult");
+    resultBox.className = "alert-box";
+    resultBox.textContent = "A importar parques…";
+
+    try {
+      const result = await api("bulkCreateParks", {items});
+      resultBox.className = "success-box";
+      resultBox.innerHTML = `
+        <strong>Importação concluída</strong>
+        <div style="margin-top:6px">
+          Criados: ${result.created}<br>
+          Ignorados: ${result.skipped}<br>
+          Erros: ${result.errors.length}
+        </div>
+        ${result.errors.length ? `
+          <div style="margin-top:8px;font-size:.78rem">
+            ${result.errors.slice(0,10).map(e => `${escapeHtml(e.line)} — ${escapeHtml(e.error)}`).join("<br>")}
+          </div>
+        ` : ""}
+      `;
+      await loadInitialData();
+    } catch (err) {
+      resultBox.className = "error-box";
+      resultBox.textContent = err.message;
+    }
   }
 
   function newParkModal() {

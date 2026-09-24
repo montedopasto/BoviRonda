@@ -276,3 +276,6 @@ button.dashboard-alert{cursor:pointer}
 .round-history-meta{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;color:var(--muted);font-size:.75rem}.round-history-status{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.round-history-status span{border-radius:10px;padding:7px 9px;font-size:.72rem;font-weight:800}
 .round-status-ok{background:#e5f2eb;color:#1f6748}.round-status-bad{background:#fde7e7;color:#9d3030}.round-history-notes{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:.78rem;color:var(--muted)}
 @media (max-width:520px){.round-start-row{grid-template-columns:minmax(0,1fr) 104px}.round-qr-btn{min-width:104px;padding-left:10px;padding-right:10px}}
+
+.admin-action-row{display:flex;gap:9px;flex-wrap:wrap}
+@media (max-width:520px){.admin-action-row{display:grid;grid-template-columns:1fr}}
