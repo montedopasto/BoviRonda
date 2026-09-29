@@ -1,0 +1,14 @@
+BoviRonda v1.7.2 — Seleção de exploração antes do parque
+
+Alterações em Rondas > Registar nova ronda:
+- Primeiro escolhe-se a Exploração: Monte Ruivo ou Trolho.
+- Só depois fica disponível a lista de parques dessa exploração.
+- Na lista de parques aparece apenas o NOME do parque.
+- Os códigos MR-xxx / TR-xxx deixam de aparecer nesta seleção.
+- O botão Ler QR mantém-se disponível.
+- O ID interno do parque continua a ser usado normalmente para gravar a ronda.
+- Ordenação dos nomes dos parques é natural (Parque 1, Parque 2, ... Parque 10).
+
+Para atualizar:
+- substituir index.html, app.js e sw.js no GitHub.
+- não é necessário alterar nem republicar o Code.gs.

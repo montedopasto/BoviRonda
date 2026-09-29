@@ -635,6 +635,14 @@
 
   function renderRounds(el) {
     const rounds = state.rounds || [];
+    const farms = [...new Set(
+      (state.parks || [])
+        .map(p => String(p.farmName || "").trim())
+        .filter(Boolean)
+    )].sort((a,b) => {
+      const preferred = {"Monte Ruivo": 1, "Trolho": 2};
+      return (preferred[a] || 99) - (preferred[b] || 99) || a.localeCompare(b, "pt", {numeric:true});
+    });
 
     el.innerHTML = `
       <div class="page-head">
@@ -647,20 +655,23 @@
           <div class="new-round-head">
             <div>
               <h3>Registar nova ronda</h3>
-              <p>Escolha primeiro o parque ou identifique-o através do QR.</p>
+              <p>Escolha primeiro a exploração e depois o parque, ou identifique-o através do QR.</p>
             </div>
+          </div>
+
+          <div class="field">
+            <label for="roundFarmSelect">Exploração</label>
+            <select id="roundFarmSelect">
+              <option value="">Escolher exploração…</option>
+              ${farms.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join("")}
+            </select>
           </div>
 
           <div class="round-start-row">
             <div class="field round-park-field">
               <label for="roundParkSelect">Parque</label>
-              <select id="roundParkSelect">
-                <option value="">Escolher parque…</option>
-                ${state.parks
-                  .slice()
-                  .sort((a,b)=>a.farmName.localeCompare(b.farmName)||a.code.localeCompare(b.code))
-                  .map(p=>`<option value="${p.id}">${escapeHtml(p.code)} · ${escapeHtml(p.farmName)}${p.name ? " · "+escapeHtml(p.name):""}</option>`)
-                  .join("")}
+              <select id="roundParkSelect" disabled>
+                <option value="">Escolha primeiro a exploração…</option>
               </select>
             </div>
 
@@ -689,13 +700,47 @@
     `;
 
     if (roleCanRound()) {
-      const select = document.getElementById("roundParkSelect");
+      const farmSelect = document.getElementById("roundFarmSelect");
+      const parkSelect = document.getElementById("roundParkSelect");
       const startBtn = document.getElementById("startSelectedRoundBtn");
-      select.addEventListener("change", () => { startBtn.disabled = !select.value; });
+
+      const resetParkSelect = (message = "Escolha primeiro a exploração…") => {
+        parkSelect.innerHTML = `<option value="">${message}</option>`;
+        parkSelect.disabled = true;
+        startBtn.disabled = true;
+      };
+
+      farmSelect.addEventListener("change", () => {
+        const farmName = farmSelect.value;
+        if (!farmName) {
+          resetParkSelect();
+          return;
+        }
+
+        const farmParks = (state.parks || [])
+          .filter(p => p.farmName === farmName)
+          .slice()
+          .sort((a,b) => String(a.name || "").localeCompare(String(b.name || ""), "pt", {numeric:true, sensitivity:"base"}));
+
+        parkSelect.innerHTML = `
+          <option value="">Escolher parque…</option>
+          ${farmParks
+            .map(p => `<option value="${p.id}">${escapeHtml(p.name || "Parque")}</option>`)
+            .join("")}
+        `;
+        parkSelect.disabled = false;
+        startBtn.disabled = true;
+      });
+
+      parkSelect.addEventListener("change", () => {
+        startBtn.disabled = !parkSelect.value;
+      });
+
       startBtn.addEventListener("click", () => {
-        const park = state.parks.find(p => p.id === select.value);
+        const park = state.parks.find(p => p.id === parkSelect.value);
         if (park) renderRoundForm(park);
       });
+
       document.getElementById("roundQrBtn").addEventListener("click", openQrScannerModal);
     }
   }
