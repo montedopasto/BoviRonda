@@ -435,7 +435,7 @@
           <div class="dashboard-alert-icon">!</div>
           <div class="dashboard-alert-content">
             <strong>${criticalIncidents.length} alerta${criticalIncidents.length===1?"":"s"} crítico${criticalIncidents.length===1?"":"s"}</strong>
-            <span>${criticalIncidents.slice(0,2).map(i => `${i.parkCode} · ${i.typeLabel}`).join("  •  ")}${criticalIncidents.length>2?"  •  +"+(criticalIncidents.length-2):""}</span>
+            <span>${criticalIncidents.slice(0,2).map(i => `${visibleParkName(i)} · ${i.typeLabel}`).join("  •  ")}${criticalIncidents.length>2?"  •  +"+(criticalIncidents.length-2):""}</span>
           </div>
           <div class="dashboard-alert-arrow">›</div>
         </button>`);
@@ -447,7 +447,7 @@
           <div class="dashboard-alert-icon">✚</div>
           <div class="dashboard-alert-content">
             <strong>${vetIncidents.length} ocorrência${vetIncidents.length===1?"":"s"} veterinária${vetIncidents.length===1?"":"s"}</strong>
-            <span>${vetIncidents.slice(0,2).map(i => `${i.parkCode} · ${i.typeLabel}`).join("  •  ")}${vetIncidents.length>2?"  •  +"+(vetIncidents.length-2):""}</span>
+            <span>${vetIncidents.slice(0,2).map(i => `${visibleParkName(i)} · ${i.typeLabel}`).join("  •  ")}${vetIncidents.length>2?"  •  +"+(vetIncidents.length-2):""}</span>
           </div>
           <div class="dashboard-alert-arrow">›</div>
         </button>`);
@@ -459,7 +459,7 @@
           <div class="dashboard-alert-icon">⚠</div>
           <div class="dashboard-alert-content">
             <strong>${operationalIncidents.length} problema${operationalIncidents.length===1?"":"s"} operacional${operationalIncidents.length===1?"":"ais"}</strong>
-            <span>${operationalIncidents.slice(0,2).map(i => `${i.parkCode} · ${i.typeLabel}`).join("  •  ")}${operationalIncidents.length>2?"  •  +"+(operationalIncidents.length-2):""}</span>
+            <span>${operationalIncidents.slice(0,2).map(i => `${visibleParkName(i)} · ${i.typeLabel}`).join("  •  ")}${operationalIncidents.length>2?"  •  +"+(operationalIncidents.length-2):""}</span>
           </div>
           <div class="dashboard-alert-arrow">›</div>
         </button>`);
@@ -471,7 +471,7 @@
           <div class="dashboard-alert-icon">◷</div>
           <div class="dashboard-alert-content">
             <strong>${overdueParks.length} parque${overdueParks.length===1?"":"s"} há vários dias sem ronda</strong>
-            <span>${overdueParks.slice(0,3).map(p => `${p.code} · ${p.daysSinceRound===null?"sem histórico":p.daysSinceRound+" dias"}`).join("  •  ")}</span>
+            <span>${overdueParks.slice(0,3).map(p => `${visibleParkName(p)} · ${p.daysSinceRound===null?"sem histórico":p.daysSinceRound+" dias"}`).join("  •  ")}</span>
           </div>
           <div class="dashboard-alert-arrow">›</div>
         </button>`);
@@ -545,8 +545,8 @@
       <button class="dashboard-park-card park-open ${stateClass}" data-id="${escapeHtml(p.id)}">
         <div class="dashboard-park-card-top">
           <div>
-            <strong>${escapeHtml(p.code)}</strong>
-            <span>${escapeHtml(p.farmName)}${p.name ? " · "+escapeHtml(p.name):""}</span>
+            <strong>${escapeHtml(visibleParkName(p))}</strong>
+            <span>${escapeHtml(p.farmName)}</span>
           </div>
           <div class="dashboard-park-status-icon">${stateIcon}</div>
         </div>
@@ -554,6 +554,20 @@
         <div class="dashboard-park-last">${p.lastRoundUser ? `Última por ${escapeHtml(p.lastRoundUser)}` : "Sem histórico de rondas"}</div>
         ${p.daysSinceRound === 0 ? `<div class="dashboard-last-state"><span>💧 ${p.water ? escapeHtml(statusDisplay(p.water)) : "—"}</span><span>🌾 ${p.feed ? escapeHtml(statusDisplay(p.feed)) : "—"}</span></div>` : ""}
       </button>`;
+  }
+
+  function visibleParkName(obj) {
+    if (!obj) return "Parque";
+    const direct = String(obj.parkName || obj.name || "").trim();
+    if (direct) return direct;
+
+    const code = String(obj.parkCode || obj.code || "").trim();
+    const pool = [
+      ...(state.parks || []),
+      ...(state.adminParks || [])
+    ];
+    const found = pool.find(p => String(p.code || "").trim() === code);
+    return String(found?.name || "Parque").trim() || "Parque";
   }
 
   function statusDisplay(value) {
@@ -564,7 +578,7 @@
   function parkListItem(p) {
     return `<button class="list-item park-open" data-id="${escapeHtml(p.id)}" style="width:100%;text-align:left">
       <div class="list-main">
-        <strong>${escapeHtml(p.code)} ${p.name ? "· "+escapeHtml(p.name) : ""}</strong>
+        <strong>${escapeHtml(visibleParkName(p))}</strong>
         <span>${escapeHtml(p.farmName)} · ${p.lastRoundUser ? "Última por "+escapeHtml(p.lastRoundUser) : "Ainda sem rondas"}</span>
       </div>
       ${daysBadge(p.daysSinceRound)}
@@ -576,7 +590,7 @@
     return `<button class="list-item incident-open" data-id="${escapeHtml(i.id)}" style="width:100%;text-align:left">
       <div class="list-main">
         <strong>${i.category === "veterinaria" ? "🩺" : "⚠️"} ${escapeHtml(i.typeLabel || i.type)}</strong>
-        <span>${escapeHtml(i.farmName)} · ${escapeHtml(i.parkCode)} · ${escapeHtml(i.reportedByName || "")}</span>
+        <span>${escapeHtml(i.farmName)} · ${escapeHtml(visibleParkName(i))} · ${escapeHtml(i.reportedByName || "")}</span>
       </div>
       <span class="badge ${cls}">${escapeHtml(i.statusLabel || i.status)}</span>
     </button>`;
@@ -617,7 +631,7 @@
       const rounds = data.rounds || [];
       const incidents = data.incidents || [];
       showModal(`
-        <div class="modal-head"><div><h2>${escapeHtml(p.code)} ${p.name ? "· "+escapeHtml(p.name) : ""}</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(p.farmName)}</div></div><button class="icon-btn modal-close">×</button></div>
+        <div class="modal-head"><div><h2>${escapeHtml(visibleParkName(p))}</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(p.farmName)}</div></div><button class="icon-btn modal-close">×</button></div>
         <div class="kpis">
           <div class="card kpi"><div class="value">${p.daysSinceRound ?? "—"}</div><div class="label">Dias desde ronda</div></div>
           <div class="card kpi"><div class="value">${incidents.filter(x=>x.status!=="resolvida").length}</div><div class="label">Ocorrências abertas</div></div>
@@ -752,8 +766,8 @@
       <article class="card round-history-card">
         <div class="round-history-top">
           <div>
-            <strong>${escapeHtml(r.parkCode)}</strong>
-            <span>${escapeHtml(r.farmName)}${r.parkName ? " · "+escapeHtml(r.parkName):""}</span>
+            <strong>${escapeHtml(visibleParkName(r))}</strong>
+            <span>${escapeHtml(r.farmName)}</span>
           </div>
           <span class="badge badge-green">Concluída</span>
         </div>
@@ -889,7 +903,7 @@
     showModal(`
       <div class="modal-head"><h2>Escolher parque</h2><button class="icon-btn modal-close">×</button></div>
       <div class="list">
-        ${state.parks.map(p => `<button class="list-item manual-park" data-id="${p.id}" style="width:100%;text-align:left"><div class="list-main"><strong>${escapeHtml(p.code)}</strong><span>${escapeHtml(p.farmName)} ${p.name ? "· "+escapeHtml(p.name):""}</span></div></button>`).join("")}
+        ${state.parks.map(p => `<button class="list-item manual-park" data-id="${p.id}" style="width:100%;text-align:left"><div class="list-main"><strong>${escapeHtml(visibleParkName(p))}</strong><span>${escapeHtml(p.farmName)}</span></div></button>`).join("")}
       </div>`);
     document.querySelectorAll(".manual-park").forEach(b => b.addEventListener("click", () => {
       const p = state.parks.find(x=>x.id===b.dataset.id);
@@ -901,7 +915,7 @@
     const el = document.getElementById("page");
     state.page = "parks";
     el.innerHTML = `
-      <div class="page-head"><h2>Ronda · ${escapeHtml(park.code)}</h2><p>${escapeHtml(park.farmName)} ${park.name ? "· "+escapeHtml(park.name):""}</p></div>
+      <div class="page-head"><h2>Ronda · ${escapeHtml(visibleParkName(park))}</h2><p>${escapeHtml(park.farmName)}</p></div>
       <form id="roundForm" class="form-grid">
         <section class="card card-pad">
           <h3 style="margin-top:0">Água</h3>
@@ -1031,7 +1045,7 @@
       const canOpEdit = i.category === "operacional" && ["admin","chefia"].includes(state.profile.role);
 
       showModal(`
-        <div class="modal-head"><div><h2>${escapeHtml(i.typeLabel)}</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(i.farmName)} · ${escapeHtml(i.parkCode)}</div></div><button class="icon-btn modal-close">×</button></div>
+        <div class="modal-head"><div><h2>${escapeHtml(i.typeLabel)}</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(i.farmName)} · ${escapeHtml(visibleParkName(i))}</div></div><button class="icon-btn modal-close">×</button></div>
         <div class="card card-pad">
           <div class="list-main"><strong>Reportado por ${escapeHtml(i.reportedByName)}</strong><span>${escapeHtml(i.reportedAtLabel)}</span></div>
           ${i.description ? `<p>${escapeHtml(i.description)}</p>`:""}
@@ -1179,10 +1193,9 @@
           <button id="addParkBtn" class="btn btn-primary">+ Novo parque</button>
           <button id="bulkParkBtn" class="btn btn-outline">⇩ Importar parques em massa</button>
         </div>
-          <div class="table-wrap"><table><thead><tr><th>Código</th><th>Nome</th><th>Exploração</th><th>Estado</th><th>QR</th><th></th></tr></thead><tbody>
+          <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Exploração</th><th>Estado</th><th>QR</th><th></th></tr></thead><tbody>
           ${adminParks.map(p=>`<tr>
-            <td>${escapeHtml(p.code)}</td>
-            <td>${escapeHtml(p.name||"")}</td>
+            <td>${escapeHtml(p.name||"Parque")}</td>
             <td>${escapeHtml(p.farmName)}</td>
             <td>${p.active?'<span class="badge badge-green">Disponível</span>':'<span class="badge badge-grey">Indisponível</span>'}</td>
             <td><button class="btn btn-soft show-qr" data-id="${p.id}" ${p.active?"":"disabled"}>Ver QR</button></td>
@@ -1197,6 +1210,9 @@
           if(park) editParkModal(park);
         }));
       } else if (tab === "records") {
+        try {
+          state.adminParks = await api("listAdminParks");
+        } catch {}
         const data = await api("listAdminRecords");
         state.adminRounds = data.rounds || [];
         state.adminIncidents = data.incidents || [];
@@ -1231,7 +1247,7 @@
                 <tbody>
                   ${state.adminRounds.map(r=>`<tr>
                     <td>${escapeHtml(r.completedAtLabel)}</td>
-                    <td>${escapeHtml(r.parkCode)} · ${escapeHtml(r.farmName)}</td>
+                    <td>${escapeHtml(visibleParkName(r))} · ${escapeHtml(r.farmName)}</td>
                     <td>${escapeHtml(r.userName)}</td>
                     <td>${escapeHtml(r.waterLabel)}</td>
                     <td>${escapeHtml(r.feedLabel)}</td>
@@ -1253,7 +1269,7 @@
             document.querySelectorAll(".delete-round-direct-btn").forEach(b=>b.addEventListener("click",async ()=>{
               const rec=state.adminRounds.find(r=>r.id===b.dataset.id);
               if(!rec) return;
-              if(!window.confirm(`Eliminar a ronda de ${rec.parkCode} em ${rec.completedAtLabel}? As ocorrências criadas por esta ronda também serão eliminadas.`)) return;
+              if(!window.confirm(`Eliminar a ronda de ${visibleParkName(rec)} em ${rec.completedAtLabel}? As ocorrências criadas por esta ronda também serão eliminadas.`)) return;
               try {
                 await api("deleteRoundAdmin",{roundId:rec.id});
                 toast("Ronda eliminada.");
@@ -1278,7 +1294,7 @@
                 <tbody>
                   ${state.adminIncidents.map(i=>`<tr>
                     <td>${escapeHtml(i.reportedAtLabel)}</td>
-                    <td>${escapeHtml(i.parkCode)} · ${escapeHtml(i.farmName)}</td>
+                    <td>${escapeHtml(visibleParkName(i))} · ${escapeHtml(i.farmName)}</td>
                     <td>${escapeHtml(i.typeLabel)}</td>
                     <td>${escapeHtml(i.statusLabel)}</td>
                     <td>${escapeHtml(i.reportedByName)}</td>
@@ -1300,7 +1316,7 @@
             document.querySelectorAll(".delete-incident-direct-btn").forEach(b=>b.addEventListener("click",async ()=>{
               const rec=state.adminIncidents.find(i=>i.id===b.dataset.id);
               if(!rec) return;
-              if(!window.confirm(`Eliminar a ocorrência "${rec.typeLabel}" do parque ${rec.parkCode}?`)) return;
+              if(!window.confirm(`Eliminar a ocorrência "${rec.typeLabel}" do parque ${visibleParkName(rec)}?`)) return;
               try {
                 await api("deleteIncidentAdmin",{incidentId:rec.id});
                 toast("Ocorrência eliminada.");
@@ -1318,7 +1334,7 @@
 
         renderRecords("rounds");
       } else {
-        body.innerHTML = `<div class="card card-pad"><h3 style="margin-top:0">QR Codes dos parques</h3><p style="color:var(--muted)">Cada parque tem um token permanente. Alterar o nome ou o código visível não invalida o QR.</p><div class="list">${state.parks.filter(p=>p.active!==false).map(p=>`<button class="list-item show-qr" data-id="${p.id}" style="width:100%;text-align:left"><div class="list-main"><strong>${escapeHtml(p.code)}</strong><span>${escapeHtml(p.farmName)}</span></div><span>▣</span></button>`).join("")}</div></div>`;
+        body.innerHTML = `<div class="card card-pad"><h3 style="margin-top:0">QR Codes dos parques</h3><p style="color:var(--muted)">Cada parque tem um QR permanente, mesmo que o nome do parque seja alterado.</p><div class="list">${state.parks.filter(p=>p.active!==false).map(p=>`<button class="list-item show-qr" data-id="${p.id}" style="width:100%;text-align:left"><div class="list-main"><strong>${escapeHtml(visibleParkName(p))}</strong><span>${escapeHtml(p.farmName)}</span></div><span>▣</span></button>`).join("")}</div></div>`;
         document.querySelectorAll(".show-qr").forEach(b=>b.addEventListener("click",()=>showParkQr(b.dataset.id, state.parks)));
       }
     } catch(e) { body.innerHTML = `<div class="error-box">${escapeHtml(e.message)}</div>`; }
@@ -1564,14 +1580,14 @@
       <form id="newParkForm" class="form-grid">
         <div class="field"><label>Nome</label><input id="newParkName" placeholder="Ex.: Novilhas Norte"></div>
         <div class="field"><label>Exploração</label><select id="newFarm"><option>Monte Ruivo</option><option>Trolho</option></select></div>
-        <div class="success-box">O código do parque é atribuído automaticamente pela BoviRonda.</div>
+        <div class="success-box">A identificação técnica do parque é criada automaticamente pela BoviRonda.</div>
         <button class="btn btn-primary" type="submit">Criar parque</button>
       </form>`);
     document.getElementById("newParkForm").addEventListener("submit", async e=>{
       e.preventDefault();
       try {
         const result = await api("createPark",{name:newParkName.value.trim(),farmName:newFarm.value});
-        toast(`Parque criado: ${result.code}`);
+        toast("Parque criado com sucesso.");
         closeModal();
         await refreshAll();
         state.page="admin";
@@ -1584,11 +1600,10 @@
   function editParkModal(park) {
     showModal(`
       <div class="modal-head">
-        <div><h2>Editar parque</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(park.code)}</div></div>
+        <div><h2>Editar parque</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(visibleParkName(park))}</div></div>
         <button class="icon-btn modal-close" type="button">×</button>
       </div>
       <form id="editParkForm" class="form-grid">
-        <div class="field"><label>Código</label><input id="editParkCode" value="${escapeHtml(park.code)}" readonly></div>
         <div class="field"><label>Nome</label><input id="editParkName" value="${escapeHtml(park.name||"")}"></div>
         <div class="field"><label>Exploração</label>
           <select id="editParkFarm">
@@ -1627,7 +1642,7 @@
     });
 
     document.getElementById("deleteParkBtn").addEventListener("click", async () => {
-      const ok = window.confirm(`Eliminar definitivamente o parque ${park.code}? Só é possível se ainda não tiver rondas nem ocorrências.`);
+      const ok = window.confirm(`Eliminar definitivamente o parque ${visibleParkName(park)}? Só é possível se ainda não tiver rondas nem ocorrências.`);
       if(!ok) return;
       try {
         await api("deletePark",{parkId:park.id});
@@ -1644,7 +1659,7 @@
   function editRoundModal(round) {
     showModal(`
       <div class="modal-head">
-        <div><h2>Editar ronda</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(round.parkCode)} · ${escapeHtml(round.completedAtLabel)}</div></div>
+        <div><h2>Editar ronda</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(visibleParkName(round))} · ${escapeHtml(round.completedAtLabel)}</div></div>
         <button class="icon-btn modal-close" type="button">×</button>
       </div>
       <form id="editRoundForm" class="form-grid">
@@ -1708,7 +1723,7 @@
   function editIncidentAdminModal(incident) {
     showModal(`
       <div class="modal-head">
-        <div><h2>Editar ocorrência</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(incident.parkCode)} · ${escapeHtml(incident.typeLabel)}</div></div>
+        <div><h2>Editar ocorrência</h2><div style="color:var(--muted);font-size:.82rem">${escapeHtml(visibleParkName(incident))} · ${escapeHtml(incident.typeLabel)}</div></div>
         <button class="icon-btn modal-close" type="button">×</button>
       </div>
       <form id="editIncidentAdminForm" class="form-grid">
@@ -1755,11 +1770,11 @@
   function showParkQr(id, sourceList=state.parks) {
     const p = sourceList.find(x=>x.id===id); if(!p)return;
     showModal(`
-      <div class="modal-head"><h2>QR · ${escapeHtml(p.code)}</h2><button class="icon-btn modal-close">×</button></div>
+      <div class="modal-head"><h2>QR · ${escapeHtml(visibleParkName(p))}</h2><button class="icon-btn modal-close">×</button></div>
       <div class="card qr-card">
         <div style="font-size:.8rem;color:var(--muted)">MONTE DO PASTO</div>
         <h2 style="margin:5px 0">${escapeHtml(p.farmName)}</h2>
-        <div style="font-size:1.6rem;font-weight:900">${escapeHtml(p.code)}</div>
+        <div style="font-size:1.6rem;font-weight:900">${escapeHtml(visibleParkName(p))}</div>
         <div id="qrBox" class="qr-box"></div>
         <p style="color:var(--muted);font-size:.82rem">Ler com a aplicação BoviRonda</p>
         <button id="printQrBtn" class="btn btn-primary">Imprimir</button>

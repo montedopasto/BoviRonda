@@ -1,0 +1,11 @@
+BoviRonda v1.7.3 — Códigos dos parques ocultos
+
+- MR-xxx e TR-xxx deixam de aparecer em toda a interface visível.
+- Dashboard, parques, rondas, ocorrências, administração, históricos e QR passam a mostrar apenas o nome do parque.
+- Os códigos continuam guardados internamente para controlo técnico, sem serem mostrados ao utilizador.
+- Não é necessário alterar o Code.gs.
+
+Atualizar no GitHub:
+- index.html
+- app.js
+- sw.js
