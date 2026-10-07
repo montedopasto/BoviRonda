@@ -1,0 +1,25 @@
+BoviRonda v1.8.0 — Relatórios
+
+Nova área Relatórios para Admin e Chefia.
+
+Inclui:
+- filtros por data, exploração e parque;
+- indicadores de rondas, ocorrências, veterinária e problemas detetados;
+- relatório detalhado de rondas;
+- relatório de ocorrências;
+- análise de atividade por parque;
+- exportação CSV;
+- impressão / guardar em PDF;
+- códigos técnicos dos parques continuam ocultos;
+- no relatório aparece sempre o nome do parque.
+
+Code.gs:
+- a ação listRounds já existente passa a devolver até 5000 rondas, para permitir períodos maiores.
+- não foi criada nenhuma ação nova no backend.
+
+Atualização recomendada:
+1. Substituir todos os ficheiros no GitHub.
+2. Substituir Code.gs no Apps Script.
+3. Apps Script > Implementar > Gerir implementações > Editar > Nova versão > Implementar.
+
+A área de Relatórios funciona com o backend anterior, mas ficará limitada às últimas 250 rondas até atualizar o Code.gs.

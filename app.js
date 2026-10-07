@@ -14,7 +14,9 @@
     farms: [],
     page: "home",
     farmFilter: "Todos",
-    scanner: null
+    scanner: null,
+    reportIncidents: [],
+    reportLoading: false
   };
 
   const ROLE_LABELS = {
@@ -91,6 +93,10 @@
 
   function roleCanSeeOperations() {
     return ["admin","chefia","veterinario"].includes(state.profile?.role);
+  }
+
+  function roleCanSeeReports() {
+    return ["admin","chefia"].includes(state.profile?.role);
   }
 
   async function login(username, pin) {
@@ -213,6 +219,7 @@
       ["parks","▦","Parques"],
       ["incidents","!","Ocorrências"]
     ];
+    if (roleCanSeeReports()) items.push(["reports","▤","Relatórios"]);
     if (state.profile?.role === "admin") items.push(["admin","⚙","Admin"]);
     return items;
   }
@@ -247,7 +254,7 @@
           </main>
           <nav class="bottom-nav">
             <div class="bottom-inner">
-              ${nav.slice(0,4).map(([p,i,l]) => `<button class="nav-btn ${state.page===p?'active':''}" data-page="${p}"><span>${i}</span>${l}</button>`).join("")}
+              ${nav.filter(([p]) => p !== "admin").map(([p,i,l]) => `<button class="nav-btn ${state.page===p?'active':''}" data-page="${p}"><span>${i}</span>${l}</button>`).join("")}
             </div>
           </nav>
         </div>
@@ -274,7 +281,360 @@
     else if (state.page === "scan") renderScanner(el);
     else if (state.page === "parks") renderParks(el);
     else if (state.page === "incidents") renderIncidents(el);
+    else if (state.page === "reports") renderReports(el);
     else if (state.page === "admin") renderAdmin(el);
+  }
+
+
+  function isoDateLocal(d) {
+    const x = new Date(d);
+    if (Number.isNaN(x.getTime())) return "";
+    const y = x.getFullYear();
+    const m = String(x.getMonth()+1).padStart(2,"0");
+    const day = String(x.getDate()).padStart(2,"0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function reportDateInRange(value, from, to) {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return false;
+    if (from) {
+      const f = new Date(`${from}T00:00:00`);
+      if (d < f) return false;
+    }
+    if (to) {
+      const t = new Date(`${to}T23:59:59`);
+      if (d > t) return false;
+    }
+    return true;
+  }
+
+  function csvEscape(value) {
+    const s = String(value ?? "");
+    return `"${s.replace(/"/g,'""')}"`;
+  }
+
+  function downloadCsv(filename, rows) {
+    const csv = "\ufeff" + rows.map(r => r.map(csvEscape).join(";")).join("\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+
+  function reportStatusText(value) {
+    const v = String(value || "").toLowerCase();
+    if (!v || v === "ok") return "OK";
+    if (v === "problema") return "Problema";
+    if (v === "baixo") return "Baixo";
+    if (v === "sem_agua") return "Sem água";
+    if (v === "sem_comida") return "Sem comida";
+    return value || "—";
+  }
+
+  async function ensureReportData() {
+    if (state.reportLoading) return;
+    state.reportLoading = true;
+    try {
+      const [rounds, incidents] = await Promise.all([
+        api("listRounds"),
+        api("listIncidents", {})
+      ]);
+      state.rounds = rounds || [];
+      state.reportIncidents = incidents || [];
+    } finally {
+      state.reportLoading = false;
+    }
+  }
+
+  async function renderReports(el) {
+    if (!roleCanSeeReports()) {
+      el.innerHTML = `<div class="error-box">O seu perfil não tem acesso aos relatórios.</div>`;
+      return;
+    }
+
+    const today = new Date();
+    const first = new Date(today.getFullYear(), today.getMonth(), 1);
+    const defaultFrom = isoDateLocal(first);
+    const defaultTo = isoDateLocal(today);
+
+    el.innerHTML = `
+      <div class="page-head reports-page-head">
+        <div>
+          <h2>Relatórios</h2>
+          <p>Análise de rondas, ocorrências e acompanhamento dos parques.</p>
+        </div>
+      </div>
+
+      <section class="card card-pad reports-filters">
+        <div class="reports-filter-grid">
+          <div class="field">
+            <label>De</label>
+            <input id="reportFrom" type="date" value="${defaultFrom}">
+          </div>
+          <div class="field">
+            <label>Até</label>
+            <input id="reportTo" type="date" value="${defaultTo}">
+          </div>
+          <div class="field">
+            <label>Exploração</label>
+            <select id="reportFarm">
+              <option value="">Todas</option>
+              <option value="Monte Ruivo">Monte Ruivo</option>
+              <option value="Trolho">Trolho</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Parque</label>
+            <select id="reportPark">
+              <option value="">Todos</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="reports-actions">
+          <button id="reportApplyBtn" class="btn btn-primary" type="button">Aplicar filtros</button>
+          <button id="reportCsvBtn" class="btn btn-outline" type="button">Exportar CSV</button>
+          <button id="reportPrintBtn" class="btn btn-outline" type="button">Imprimir / PDF</button>
+        </div>
+      </section>
+
+      <div id="reportsContent">
+        <div class="card card-pad">A carregar relatórios…</div>
+      </div>
+    `;
+
+    const farmEl = document.getElementById("reportFarm");
+    const parkEl = document.getElementById("reportPark");
+
+    const fillParks = () => {
+      const farm = farmEl.value;
+      const parks = (state.parks || [])
+        .filter(p => !farm || p.farmName === farm)
+        .slice()
+        .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"pt",{numeric:true,sensitivity:"base"}));
+      parkEl.innerHTML = `<option value="">Todos</option>` +
+        parks.map(p=>`<option value="${p.id}">${escapeHtml(p.name || "Parque")}</option>`).join("");
+    };
+
+    farmEl.addEventListener("change", () => {
+      fillParks();
+      buildReportsContent();
+    });
+
+    document.getElementById("reportApplyBtn").addEventListener("click", buildReportsContent);
+    document.getElementById("reportPrintBtn").addEventListener("click", () => window.print());
+    document.getElementById("reportCsvBtn").addEventListener("click", exportReportsCsv);
+
+    fillParks();
+
+    try {
+      await ensureReportData();
+      fillParks();
+      buildReportsContent();
+    } catch (err) {
+      document.getElementById("reportsContent").innerHTML =
+        `<div class="error-box">Não foi possível carregar os relatórios: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function filteredReportData() {
+    const from = document.getElementById("reportFrom")?.value || "";
+    const to = document.getElementById("reportTo")?.value || "";
+    const farm = document.getElementById("reportFarm")?.value || "";
+    const parkId = document.getElementById("reportPark")?.value || "";
+
+    const rounds = (state.rounds || []).filter(r =>
+      reportDateInRange(r.completedAt, from, to) &&
+      (!farm || r.farmName === farm) &&
+      (!parkId || r.parkId === parkId)
+    );
+
+    const incidents = (state.reportIncidents || []).filter(i =>
+      reportDateInRange(i.reportedAt, from, to) &&
+      (!farm || i.farmName === farm) &&
+      (!parkId || i.parkId === parkId)
+    );
+
+    const parks = (state.parks || []).filter(p =>
+      (!farm || p.farmName === farm) &&
+      (!parkId || p.id === parkId)
+    );
+
+    return {from,to,farm,parkId,rounds,incidents,parks};
+  }
+
+  function buildReportsContent() {
+    const root = document.getElementById("reportsContent");
+    if (!root) return;
+
+    const {from,to,rounds,incidents,parks} = filteredReportData();
+    const distinctParkIds = new Set(rounds.map(r=>r.parkId));
+    const openIncidents = incidents.filter(i=>i.status !== "resolvida");
+    const vetIncidents = incidents.filter(i=>i.category === "veterinaria");
+    const operationalIncidents = incidents.filter(i=>i.category === "operacional");
+    const waterProblems = rounds.filter(r=>r.water && r.water !== "ok").length;
+    const feedProblems = rounds.filter(r=>r.feed && r.feed !== "ok").length;
+    const infraProblems = rounds.filter(r=>r.infrastructure === "problema").length;
+
+    const parkStats = parks.map(p => {
+      const pr = rounds.filter(r=>r.parkId===p.id);
+      const pi = incidents.filter(i=>i.parkId===p.id);
+      return {
+        ...p,
+        roundCount: pr.length,
+        incidentCount: pi.length,
+        lastRound: pr.slice().sort((a,b)=>new Date(b.completedAt)-new Date(a.completedAt))[0] || null
+      };
+    }).sort((a,b)=> {
+      if (a.roundCount !== b.roundCount) return a.roundCount - b.roundCount;
+      return String(a.name||"").localeCompare(String(b.name||""),"pt",{numeric:true});
+    });
+
+    root.innerHTML = `
+      <section class="reports-kpis">
+        <article class="card report-kpi">
+          <span>Rondas</span><strong>${rounds.length}</strong>
+          <small>${distinctParkIds.size} parques diferentes</small>
+        </article>
+        <article class="card report-kpi">
+          <span>Ocorrências</span><strong>${incidents.length}</strong>
+          <small>${openIncidents.length} ainda abertas</small>
+        </article>
+        <article class="card report-kpi">
+          <span>Veterinária</span><strong>${vetIncidents.length}</strong>
+          <small>ocorrências no período</small>
+        </article>
+        <article class="card report-kpi">
+          <span>Problemas detetados</span><strong>${waterProblems+feedProblems+infraProblems}</strong>
+          <small>água, comida ou infraestrutura</small>
+        </article>
+      </section>
+
+      <section class="card card-pad report-section">
+        <div class="report-section-head">
+          <div><h3>Resumo de rondas</h3><p>${escapeHtml(from)} a ${escapeHtml(to)}</p></div>
+        </div>
+        <div class="report-mini-kpis">
+          <span>💧 <strong>${waterProblems}</strong> água</span>
+          <span>🌾 <strong>${feedProblems}</strong> alimentação</span>
+          <span>🔧 <strong>${infraProblems}</strong> infraestrutura</span>
+        </div>
+        <div class="table-wrap">
+          <table class="report-table">
+            <thead><tr><th>Data</th><th>Exploração</th><th>Parque</th><th>Colaborador</th><th>Água</th><th>Comida</th><th>Infra.</th></tr></thead>
+            <tbody>
+              ${rounds.length ? rounds.map(r=>`
+                <tr>
+                  <td>${escapeHtml(r.completedAtLabel || "")}</td>
+                  <td>${escapeHtml(r.farmName || "")}</td>
+                  <td><strong>${escapeHtml(visibleParkName(r))}</strong></td>
+                  <td>${escapeHtml(r.userName || "")}</td>
+                  <td>${escapeHtml(reportStatusText(r.water))}</td>
+                  <td>${escapeHtml(reportStatusText(r.feed))}</td>
+                  <td>${escapeHtml(reportStatusText(r.infrastructure))}</td>
+                </tr>`).join("") :
+                `<tr><td colspan="7" class="report-empty">Sem rondas no período selecionado.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card card-pad report-section">
+        <div class="report-section-head">
+          <div><h3>Ocorrências</h3><p>${incidents.length} registos · ${openIncidents.length} abertos</p></div>
+        </div>
+        <div class="report-mini-kpis">
+          <span>🩺 <strong>${vetIncidents.length}</strong> veterinárias</span>
+          <span>⚠ <strong>${operationalIncidents.length}</strong> operacionais</span>
+        </div>
+        <div class="table-wrap">
+          <table class="report-table">
+            <thead><tr><th>Data</th><th>Exploração</th><th>Parque</th><th>Tipo</th><th>Estado</th><th>Reportado por</th></tr></thead>
+            <tbody>
+              ${incidents.length ? incidents.map(i=>`
+                <tr>
+                  <td>${escapeHtml(i.reportedAtLabel || "")}</td>
+                  <td>${escapeHtml(i.farmName || "")}</td>
+                  <td><strong>${escapeHtml(visibleParkName(i))}</strong></td>
+                  <td>${escapeHtml(i.typeLabel || "")}</td>
+                  <td>${escapeHtml(i.statusLabel || i.status || "")}</td>
+                  <td>${escapeHtml(i.reportedByName || "")}</td>
+                </tr>`).join("") :
+                `<tr><td colspan="6" class="report-empty">Sem ocorrências no período selecionado.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card card-pad report-section">
+        <div class="report-section-head">
+          <div><h3>Parques</h3><p>Atividade dentro do período selecionado</p></div>
+        </div>
+        <div class="table-wrap">
+          <table class="report-table">
+            <thead><tr><th>Exploração</th><th>Parque</th><th>Rondas</th><th>Ocorrências</th><th>Última ronda no período</th></tr></thead>
+            <tbody>
+              ${parkStats.length ? parkStats.map(p=>`
+                <tr>
+                  <td>${escapeHtml(p.farmName || "")}</td>
+                  <td><strong>${escapeHtml(p.name || "Parque")}</strong></td>
+                  <td>${p.roundCount}</td>
+                  <td>${p.incidentCount}</td>
+                  <td>${p.lastRound ? escapeHtml(p.lastRound.completedAtLabel || "") : '<span class="badge badge-grey">Sem ronda</span>'}</td>
+                </tr>`).join("") :
+                `<tr><td colspan="5" class="report-empty">Sem parques para os filtros selecionados.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }
+
+  function exportReportsCsv() {
+    const {from,to,rounds,incidents,parks} = filteredReportData();
+    const rows = [
+      ["BoviRonda · Relatório", `${from} a ${to}`],
+      [],
+      ["RONDAS"],
+      ["Data","Exploração","Parque","Colaborador","Água","Comida","Infraestrutura","Observações"]
+    ];
+
+    rounds.forEach(r => rows.push([
+      r.completedAtLabel || "",
+      r.farmName || "",
+      visibleParkName(r),
+      r.userName || "",
+      reportStatusText(r.water),
+      reportStatusText(r.feed),
+      reportStatusText(r.infrastructure),
+      r.notes || ""
+    ]));
+
+    rows.push([],["OCORRÊNCIAS"],["Data","Exploração","Parque","Tipo","Estado","Reportado por","Descrição"]);
+    incidents.forEach(i => rows.push([
+      i.reportedAtLabel || "",
+      i.farmName || "",
+      visibleParkName(i),
+      i.typeLabel || "",
+      i.statusLabel || i.status || "",
+      i.reportedByName || "",
+      i.description || ""
+    ]));
+
+    rows.push([],["PARQUES"],["Exploração","Parque","Dias desde última ronda"]);
+    parks.forEach(p => rows.push([
+      p.farmName || "",
+      p.name || "Parque",
+      p.daysSinceRound === null || p.daysSinceRound === undefined ? "Sem histórico" : p.daysSinceRound
+    ]));
+
+    downloadCsv(`BoviRonda_Relatorio_${from}_${to}.csv`, rows);
   }
 
   function renderHome(el) {
