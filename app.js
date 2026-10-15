@@ -34,17 +34,6 @@
     toast._t = setTimeout(() => toastEl.classList.remove("show"), 2600);
   }
 
-  function directPhotoUrl(url="") {
-    const s = String(url || "").trim();
-    if (!s) return "";
-    if (s.includes("lh3.googleusercontent.com/d/")) return s;
-
-    const m = s.match(/(?:id=|\/d\/)([-\w]{20,})/);
-    if (m) return `https://lh3.googleusercontent.com/d/${m[1]}`;
-
-    return s;
-  }
-
   function escapeHtml(s="") {
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
   }
@@ -1227,7 +1216,7 @@
         <button class="dashboard-alert dashboard-alert-warning dashboard-alert-click" data-target="incidents">
           <div class="dashboard-alert-icon">⚠</div>
           <div class="dashboard-alert-content">
-            <strong>${operationalIncidents.length} problema${operationalIncidents.length===1?"":"s"} operacional${operationalIncidents.length===1?"":"ais"}</strong>
+            <strong>${operationalIncidents.length} problema${operationalIncidents.length===1?"":"s"} ${operationalIncidents.length===1?"operacional":"operacionais"}</strong>
             <span>${operationalIncidents.slice(0,2).map(i => `${visibleParkName(i)} · ${i.typeLabel}`).join("  •  ")}${operationalIncidents.length>2?"  •  +"+(operationalIncidents.length-2):""}</span>
           </div>
           <div class="dashboard-alert-arrow">›</div>
@@ -1891,7 +1880,7 @@
         <div class="card card-pad">
           <div class="list-main"><strong>Reportado por ${escapeHtml(i.reportedByName)}</strong><span>${escapeHtml(i.reportedAtLabel)}</span></div>
           ${i.description ? `<p>${escapeHtml(i.description)}</p>`:""}
-          ${i.photoUrl ? `<img src="${escapeHtml(directPhotoUrl(i.photoUrl))}" class="photo-preview" alt="Fotografia da ocorrência" referrerpolicy="no-referrer">`:""}
+          ${i.photoUrl ? `<img src="${escapeHtml(i.photoUrl)}" class="photo-preview" alt="Fotografia da ocorrência">`:""}
         </div>
         ${canVetEdit ? vetForm(i, data.veterinary, data.necropsy) : ""}
         ${canOpEdit ? operationalForm(i) : ""}
