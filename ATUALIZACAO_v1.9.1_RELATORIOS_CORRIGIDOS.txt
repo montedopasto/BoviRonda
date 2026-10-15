@@ -1,0 +1,18 @@
+BoviRonda v1.9.1 — Relatórios corrigidos
+
+Correções:
+- Admin deixa de chamar listRounds. Usa diretamente listAdminRecords, que já existe no backend atual.
+- Filtro de datas aceita datas ISO, datas do Apps Script e datas PT no formato dd/mm/yyyy hh:mm.
+- Rondas e ocorrências são normalizadas antes de aplicar filtros.
+- Mostra quantos registos foram carregados antes do filtro.
+- Service Worker passa a privilegiar rede e o cache foi forçado para uma nova versão, evitando carregar app.js antigo.
+
+Não é necessário alterar Code.gs nesta correção.
+
+Atualizar no GitHub:
+- index.html
+- app.js
+- styles.css
+- sw.js
+
+Depois fechar completamente a app/PWA e voltar a abrir.

@@ -393,3 +393,14 @@ button.dashboard-alert{cursor:pointer}
  body.printing-report .report-document{display:block!important;width:100%!important}
  body.printing-report .report-document-header{border:0!important;border-bottom:2px solid #174d3c!important;border-radius:0!important;padding:0 0 14px!important}
 }
+
+.report-loaded-info{
+  margin:0 0 12px;
+  padding:10px 13px;
+  border-radius:12px;
+  background:#eef6f2;
+  color:#355c4d;
+  font-size:.82rem;
+  font-weight:700;
+}
+@media print{.report-loaded-info{display:none!important}}

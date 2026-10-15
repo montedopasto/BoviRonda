@@ -1,4 +1,4 @@
-const CACHE = "bovironda-v1.9.0";
+const CACHE = "bovironda-v1.9.1";
 const CORE = ["./","./index.html","./styles.css","./app.js","./config.js","./manifest.json"];
 self.addEventListener("install", e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE))));
 self.addEventListener("activate", e => {
@@ -8,11 +8,16 @@ self.addEventListener("activate", e => {
       .then(() => self.clients.claim())
   );
 });
-self.addEventListener("fetch", e => {
-  if (e.request.method !== "GET") return;
-  e.respondWith(fetch(e.request).then(r => {
-    const copy = r.clone();
-    caches.open(CACHE).then(c => c.put(e.request, copy));
-    return r;
-  }).catch(() => caches.match(e.request)));
+self.addEventListener("fetch", event => {
+  if (event.request.method !== "GET") return;
+
+  event.respondWith(
+    fetch(event.request)
+      .then(response => {
+        const copy = response.clone();
+        caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
+  );
 });

@@ -295,17 +295,66 @@
     return `${y}-${m}-${day}`;
   }
 
-  function reportDateInRange(value, from, to) {
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return false;
+  function parseReportDate(value, fallbackLabel="") {
+    const candidates = [value, fallbackLabel].filter(Boolean);
+
+    for (const candidate of candidates) {
+      if (candidate instanceof Date && !Number.isNaN(candidate.getTime())) return candidate;
+
+      const s = String(candidate).trim();
+      if (!s) continue;
+
+      // ISO / formatos reconhecidos nativamente pelo browser.
+      const nativeDate = new Date(s);
+      if (!Number.isNaN(nativeDate.getTime())) return nativeDate;
+
+      // Formato PT: dd/mm/yyyy ou dd/mm/yyyy hh:mm[:ss]
+      const pt = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+      if (pt) {
+        const d = new Date(
+          Number(pt[3]),
+          Number(pt[2]) - 1,
+          Number(pt[1]),
+          Number(pt[4] || 0),
+          Number(pt[5] || 0),
+          Number(pt[6] || 0)
+        );
+        if (!Number.isNaN(d.getTime())) return d;
+      }
+
+      // Formato yyyy-mm-dd [hh:mm:ss]
+      const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+      if (ymd) {
+        const d = new Date(
+          Number(ymd[1]),
+          Number(ymd[2]) - 1,
+          Number(ymd[3]),
+          Number(ymd[4] || 0),
+          Number(ymd[5] || 0),
+          Number(ymd[6] || 0)
+        );
+        if (!Number.isNaN(d.getTime())) return d;
+      }
+    }
+    return null;
+  }
+
+  function reportDateInRange(value, from, to, fallbackLabel="") {
+    const d = parseReportDate(value, fallbackLabel);
+    if (!d) return false;
+
     if (from) {
-      const f = new Date(`${from}T00:00:00`);
+      const [y,m,day] = from.split("-").map(Number);
+      const f = new Date(y, m-1, day, 0, 0, 0, 0);
       if (d < f) return false;
     }
+
     if (to) {
-      const t = new Date(`${to}T23:59:59`);
+      const [y,m,day] = to.split("-").map(Number);
+      const t = new Date(y, m-1, day, 23, 59, 59, 999);
       if (d > t) return false;
     }
+
     return true;
   }
 
@@ -345,26 +394,28 @@
       let rounds = null;
       let incidents = null;
 
-      // 1) Método normal nas versões de backend que já têm listRounds.
-      try {
-        rounds = await api("listRounds");
-      } catch (err) {
-        console.warn("BoviRonda Relatórios: listRounds indisponível; a usar compatibilidade.", err);
-      }
-
-      // 2) Em Admin, aproveitar os registos administrativos já existentes.
-      if (!Array.isArray(rounds) && state.profile?.role === "admin") {
+      // Admin: usar diretamente listAdminRecords, que já existe no backend atual.
+      // Assim não chamamos listRounds num backend antigo.
+      if (state.profile?.role === "admin") {
         try {
           const adminData = await api("listAdminRecords");
           rounds = adminData?.rounds || [];
           incidents = adminData?.incidents || [];
         } catch (err) {
-          console.warn("BoviRonda Relatórios: listAdminRecords indisponível; a usar histórico por parque.", err);
+          console.warn("BoviRonda Relatórios: listAdminRecords indisponível.", err);
         }
       }
 
-      // 3) Fallback universal: histórico diretamente de cada parque.
-      // getPark já existe no backend antigo e devolve até 30 rondas por parque.
+      // Chefia / compatibilidade: tentar listRounds apenas fora de Admin.
+      if (!Array.isArray(rounds) && state.profile?.role !== "admin") {
+        try {
+          rounds = await api("listRounds");
+        } catch (err) {
+          console.warn("BoviRonda Relatórios: listRounds indisponível; a usar histórico por parque.", err);
+        }
+      }
+
+      // Fallback: histórico por parque.
       if (!Array.isArray(rounds)) {
         const all = [];
         const parks = state.parks || [];
@@ -392,20 +443,33 @@
           if (seen.has(key)) return false;
           seen.add(key);
           return true;
-        }).sort((a,b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
+        });
       }
 
-      // Ocorrências continuam disponíveis nas versões antigas.
+      // Ocorrências: usar as do Admin ou a API normal.
       if (!Array.isArray(incidents)) {
         try {
           incidents = await api("listIncidents", {});
-        } catch {
+        } catch (err) {
+          console.warn("BoviRonda Relatórios: não foi possível carregar ocorrências.", err);
           incidents = [];
         }
       }
 
-      state.rounds = rounds || [];
-      state.reportIncidents = incidents || [];
+      state.rounds = (rounds || []).map(r => ({
+        ...r,
+        _reportDate: parseReportDate(r.completedAt, r.completedAtLabel)
+      }));
+
+      state.reportIncidents = (incidents || []).map(i => ({
+        ...i,
+        _reportDate: parseReportDate(i.reportedAt, i.reportedAtLabel)
+      }));
+
+      console.info("BoviRonda Relatórios carregados:", {
+        rounds: state.rounds.length,
+        incidents: state.reportIncidents.length
+      });
     } finally {
       state.reportLoading = false;
     }
@@ -524,13 +588,13 @@
     const parkId = document.getElementById("reportPark")?.value || "";
 
     const rounds = (state.rounds || []).filter(r =>
-      reportDateInRange(r.completedAt, from, to) &&
+      reportDateInRange(r._reportDate || r.completedAt, from, to, r.completedAtLabel) &&
       (!farm || r.farmName === farm) &&
       (!parkId || r.parkId === parkId)
     );
 
     const incidents = (state.reportIncidents || []).filter(i =>
-      reportDateInRange(i.reportedAt, from, to) &&
+      reportDateInRange(i._reportDate || i.reportedAt, from, to, i.reportedAtLabel) &&
       (!farm || i.farmName === farm) &&
       (!parkId || i.parkId === parkId)
     );
@@ -657,7 +721,11 @@
     if (reportType === "parks") body += parksSection;
     if (reportType === "veterinary") body += vetSection;
 
-    root.innerHTML = `<div class="report-document">${header}${body}</div>`;
+    const loadedInfo = `
+      <div class="report-loaded-info">
+        Dados carregados: ${state.rounds.length} rondas · ${state.reportIncidents.length} ocorrências
+      </div>`;
+    root.innerHTML = `<div class="report-document">${header}${loadedInfo}${body}</div>`;
   }
 
   function exportReportsCsv() {
