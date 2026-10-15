@@ -1,0 +1,32 @@
+BoviRonda v1.8.2 — Fotografias
+
+É NECESSÁRIO REPUBLICAR O CODE.GS.
+
+1. Apps Script: substituir Code.gs, guardar e ir a Implementar > Gerir implementações > Editar > Nova versão > Implementar. Manter a implementação existente e o mesmo URL /exec. Executar como proprietário, com acesso à pasta BoviRonda_Fotos.
+2. GitHub: substituir app.js, index.html e sw.js. Os restantes ficheiros estão incluídos para um pacote completo; preservar o config.js e CNAME atuais se tiverem sido personalizados. Não publicar Code.gs como alternativa à atualização no Apps Script.
+3. Fechar todas as janelas da app e voltar a abrir depois de a publicação do GitHub Pages terminar. Se persistir a versão antiga, recarregar a página e voltar a abrir.
+4. Testar uma ronda com fotografia e abrir a ocorrência e o histórico de rondas. Testar também uma fotografia antiga.
+
+NÃO executar setupBoviRonda(). Não é necessário executar funções manualmente para fotografias novas.
+
+FOTOGRAFIAS ANTIGAS
+A app converte automaticamente URLs view/open/uc. Se continuarem sem carregar, o proprietário pode executar repararFotosBoviRonda uma vez no editor Apps Script, após rever a política de acesso abaixo. A função não apaga registos, não recria folhas e não altera a pasta: só dá leitura por ligação às imagens referenciadas em Rondas/Ocorrencias e diretamente dentro da pasta configurada. Atualiza FotoURL nessas linhas e apresenta contagens repaired/skipped/failed no registo de execução (contagens de referências, não de ficheiros únicos). Pode ser repetida. Ficheiros removidos, fora da pasta ou bloqueados pela organização exigem intervenção manual. Guardar uma cópia da folha antes da reparação é aconselhável.
+
+ACESSO E PRIVACIDADE
+Mantém-se a política anterior: cada fotografia pode ser vista por qualquer pessoa que tenha a ligação, mesmo sem sessão na app. Não é dada permissão de edição, nem é partilhada a pasta inteira. Não encaminhar ligações de fotografias sensíveis. Se for necessário acesso restrito por utilizador, será necessário um serviço autenticado de imagens; não basta trocar o URL. Restrições Google Workspace não são contornadas: a gravação apresenta erro se o Drive impedir a partilha. A imagem recém-criada é enviada para o lixo nesse caso e a ronda não é gravada.
+
+DIAGNÓSTICO
+Base: versão atual do repositório montedopasto/BoviRonda, commit e403589 (obtida em 15/10/2026). O repositório identifica a cache como v1.8.0; o ZIP v1.8.1 referido na conversa não estava disponível no ambiente. Esta atualização parte do código efetivamente encontrado no GitHub.
+- savePhoto_ já usava ANYONE_WITH_LINK / VIEW, mas guardava drive.google.com/uc?export=view. Esse endpoint de visualização/download pode falhar como imagem incorporada. URLs /file/d/.../view e /open são páginas do Drive, não imagens.
+- A ocorrência usava FotoURL diretamente em <img>, sem conversão, alternativa ou mensagem de erro.
+- O histórico de rondas não recebia FotoURL e não tinha imagem.
+- Agora guarda e normaliza https://lh3.googleusercontent.com/d/ID=s1600, preservando resourcekey quando existe. O frontend tenta também /thumbnail e oferece ligação para abrir o original no Drive. São endpoints de entrega do Google e o seu funcionamento futuro não é garantido como serviço de alojamento de imagens.
+- O service worker recebe nova versão e deixa de guardar pedidos externos, incluindo fotografias do Drive.
+
+VALIDAÇÃO
+Sintaxe de Code.gs/app.js/sw.js verificada; conversão de URLs, rejeição de hosts/protocolos indevidos, preservação de resourcekey, partilha de leitura e falha de partilha testadas com simulações. Não houve acesso às permissões reais dos ficheiros, nem alteração da implementação ou do Drive. A causa concreta de cada fotografia antiga (permissão, ficheiro apagado ou resposta do endpoint) requer teste na conta após publicação.
+
+Referências Google:
+https://developers.google.com/apps-script/reference/drive/access
+https://developers.google.com/apps-script/reference/drive/file
+https://developers.google.com/workspace/drive/api/reference/rest/v3/files

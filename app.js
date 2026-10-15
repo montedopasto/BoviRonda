@@ -37,6 +37,42 @@
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
   }
 
+  function photoLinks(value) {
+    try {
+      const u = new URL(String(value || ""));
+      if (u.protocol !== "https:" || !["drive.google.com", "docs.google.com", "lh3.googleusercontent.com"].includes(u.hostname)) return null;
+      const id = (u.pathname.match(/\/d\/([a-zA-Z0-9_-]+)/) || [])[1] || u.searchParams.get("id");
+      if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+      const key = u.searchParams.get("resourcekey");
+      const suffix = key ? "&resourcekey=" + encodeURIComponent(key) : "";
+      return {
+        image: `https://lh3.googleusercontent.com/d/${id}=s1600${key ? '?resourcekey='+encodeURIComponent(key) : ''}`,
+        fallback: `https://drive.google.com/thumbnail?id=${id}&sz=w1600${suffix}`,
+        view: `https://drive.google.com/file/d/${id}/view${key ? '?resourcekey='+encodeURIComponent(key) : ''}`
+      };
+    } catch (_) { return null; }
+  }
+
+  function photoMarkup(value) {
+    const links = photoLinks(value);
+    if (!links) return "";
+    return `<div class="record-photo"><img src="${escapeHtml(links.image)}" data-photo-fallback="${escapeHtml(links.fallback)}" class="photo-preview" loading="lazy" referrerpolicy="no-referrer" alt="Fotografia do registo"><p class="photo-error hidden">Não foi possível carregar a fotografia. Verifique o acesso no Drive.</p><a href="${escapeHtml(links.view)}" target="_blank" rel="noopener noreferrer">Abrir fotografia no Drive</a></div>`;
+  }
+
+  // Captura também erros de imagens acrescentadas em janelas e listas dinâmicas.
+  document.addEventListener("error", event => {
+    const img = event.target;
+    if (!img.matches?.("img[data-photo-fallback]")) return;
+    if (img.dataset.photoFallback) {
+      const fallback = img.dataset.photoFallback;
+      img.dataset.photoFallback = "";
+      img.src = fallback;
+    } else {
+      img.hidden = true;
+      img.parentElement.querySelector(".photo-error")?.classList.remove("hidden");
+    }
+  }, true);
+
   async function api(action, payload={}) {
     if (!C.API_URL || C.API_URL.includes("COLE_AQUI")) {
       throw new Error("Configura primeiro o API_URL em config.js.");
@@ -999,7 +1035,7 @@
         ${roleCanRound() ? `<button id="startRoundPark" class="btn btn-primary btn-block" style="margin-top:14px">Iniciar ronda neste parque</button>` : ""}
         <div class="section-title"><div><h3>Histórico de rondas</h3></div></div>
         <div class="list">
-          ${rounds.length ? rounds.map(r => `<div class="list-item"><div class="list-main"><strong>${escapeHtml(r.completedAtLabel)}</strong><span>${escapeHtml(r.userName)} · Água: ${escapeHtml(r.waterLabel)} · Comida: ${escapeHtml(r.feedLabel)}</span></div></div>`).join("") : `<div class="empty">Ainda sem rondas.</div>`}
+          ${rounds.length ? rounds.map(r => `<div class="list-item"><div class="list-main"><strong>${escapeHtml(r.completedAtLabel)}</strong><span>${escapeHtml(r.userName)} · Água: ${escapeHtml(r.waterLabel)} · Comida: ${escapeHtml(r.feedLabel)}</span>${photoMarkup(r.photoUrl)}</div></div>`).join("") : `<div class="empty">Ainda sem rondas.</div>`}
         </div>`);
       document.getElementById("startRoundPark")?.addEventListener("click", () => {
         closeModal(); renderRoundForm(p);
@@ -1141,6 +1177,7 @@
           <span class="${r.infrastructure === "problema" ? "round-status-bad":"round-status-ok"}">🔧 ${r.infrastructure === "problema" ? "Problema":"OK"}</span>
         </div>
         ${r.notes ? `<div class="round-history-notes">${escapeHtml(r.notes)}</div>` : ""}
+        ${photoMarkup(r.photoUrl || r.FotoURL)}
       </article>`;
   }
 
@@ -1409,7 +1446,7 @@
         <div class="card card-pad">
           <div class="list-main"><strong>Reportado por ${escapeHtml(i.reportedByName)}</strong><span>${escapeHtml(i.reportedAtLabel)}</span></div>
           ${i.description ? `<p>${escapeHtml(i.description)}</p>`:""}
-          ${i.photoUrl ? `<img src="${escapeHtml(i.photoUrl)}" class="photo-preview" alt="Fotografia da ocorrência">`:""}
+          ${photoMarkup(i.photoUrl)}
         </div>
         ${canVetEdit ? vetForm(i, data.veterinary, data.necropsy) : ""}
         ${canOpEdit ? operationalForm(i) : ""}
