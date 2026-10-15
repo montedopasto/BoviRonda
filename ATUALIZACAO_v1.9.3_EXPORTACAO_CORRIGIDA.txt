@@ -1,0 +1,25 @@
+BoviRonda v1.9.3 — Exportação corrigida
+
+A exportação passa a respeitar exatamente:
+- tipo de relatório escolhido
+- data inicial
+- data final
+- exploração
+- parque
+
+Cada relatório exporta apenas os campos correspondentes:
+- Geral
+- Rondas
+- Ocorrências
+- Por Parque
+- Veterinário
+- Animais Doentes
+- Mortalidades
+
+O ficheiro continua em CSV compatível com Excel, mas o botão passa a indicar "Exportar Excel".
+
+Não é necessário alterar o Code.gs.
+Atualizar no GitHub:
+- index.html
+- app.js
+- sw.js

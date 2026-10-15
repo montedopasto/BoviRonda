@@ -836,83 +836,203 @@
 
   function exportReportsCsv() {
     const reportType = document.getElementById("reportType")?.value || "general";
-    const {from,to,rounds,incidents,parks} = filteredReportData();
+    const {from,to,farm,parkId,rounds,incidents,parks} = filteredReportData();
+
+    const selectedPark = (state.parks || []).find(p => p.id === parkId);
+    const reportNames = {
+      general: "Relatório Geral",
+      rounds: "Relatório de Rondas",
+      incidents: "Relatório de Ocorrências",
+      parks: "Relatório por Parque",
+      veterinary: "Relatório Veterinário",
+      sick: "Animais Doentes",
+      mortality: "Mortalidades"
+    };
+
     const rows = [
-      ["BoviRonda · Relatório", `${from} a ${to}`],
-      [],
-      ["RONDAS"],
-      ["Data","Exploração","Parque","Colaborador","Água","Comida","Infraestrutura","Observações"]
+      ["MONTE DO PASTO · BoviRonda"],
+      ["Relatório", reportNames[reportType] || "Relatório"],
+      ["Período", `${from} a ${to}`],
+      ["Exploração", farm || "Todas"],
+      ["Parque", selectedPark?.name || "Todos"],
+      []
     ];
 
-    rounds.forEach(r => rows.push([
-      r.completedAtLabel || "",
-      r.farmName || "",
-      visibleParkName(r),
-      r.userName || "",
-      reportStatusText(r.water),
-      reportStatusText(r.feed),
-      reportStatusText(r.infrastructure),
-      r.notes || ""
-    ]));
-
-    rows.push([],["OCORRÊNCIAS"],["Data","Exploração","Parque","Tipo","Estado","Reportado por","Descrição"]);
-    incidents.forEach(i => rows.push([
-      i.reportedAtLabel || "",
-      i.farmName || "",
-      visibleParkName(i),
-      i.typeLabel || "",
-      i.statusLabel || i.status || "",
-      i.reportedByName || "",
-      i.description || ""
-    ]));
-
-    rows.push([],["PARQUES"],["Exploração","Parque","Dias desde última ronda"]);
-    parks.forEach(p => rows.push([
-      p.farmName || "",
-      p.name || "Parque",
-      p.daysSinceRound === null || p.daysSinceRound === undefined ? "Sem histórico" : p.daysSinceRound
-    ]));
-
-    if (reportType === "sick" || reportType === "mortality") {
-      // Para estes relatórios substituímos o conteúdo genérico por dados clínicos específicos.
-      rows.length = 0;
-      rows.push(["MONTE DO PASTO · BoviRonda"]);
-      rows.push(["Relatório", reportType === "sick" ? "Animais Doentes" : "Mortalidades"]);
-      rows.push(["Período", `${from} a ${to}`]);
+    if (reportType === "general") {
+      rows.push(["RESUMO"]);
+      rows.push(["Rondas", rounds.length]);
+      rows.push(["Ocorrências", incidents.length]);
+      rows.push(["Veterinária", incidents.filter(i=>i.category==="veterinaria").length]);
       rows.push([]);
 
+      rows.push(["RONDAS"]);
+      rows.push(["Data","Exploração","Parque","Colaborador","Água","Comida","Infraestrutura","Observações"]);
+      rounds.forEach(r => rows.push([
+        r.completedAtLabel || "",
+        r.farmName || "",
+        visibleParkName(r),
+        r.userName || "",
+        reportStatusText(r.water),
+        reportStatusText(r.feed),
+        reportStatusText(r.infrastructure),
+        r.notes || ""
+      ]));
+
+      rows.push([]);
+      rows.push(["OCORRÊNCIAS"]);
+      rows.push(["Data","Exploração","Parque","Tipo","Estado","Reportado por","Descrição"]);
+      incidents.forEach(i => rows.push([
+        i.reportedAtLabel || "",
+        i.farmName || "",
+        visibleParkName(i),
+        i.typeLabel || "",
+        i.statusLabel || i.status || "",
+        i.reportedByName || "",
+        i.description || ""
+      ]));
+
+      rows.push([]);
+      rows.push(["PARQUES"]);
+      rows.push(["Exploração","Parque","Dias desde última ronda"]);
+      parks.forEach(p => rows.push([
+        p.farmName || "",
+        p.name || "Parque",
+        p.daysSinceRound === null || p.daysSinceRound === undefined ? "Sem histórico" : p.daysSinceRound
+      ]));
+    }
+
+    if (reportType === "rounds") {
+      rows.push(["Data","Exploração","Parque","Colaborador","Água","Comida","Infraestrutura","Observações"]);
+      rounds.forEach(r => rows.push([
+        r.completedAtLabel || "",
+        r.farmName || "",
+        visibleParkName(r),
+        r.userName || "",
+        reportStatusText(r.water),
+        reportStatusText(r.feed),
+        reportStatusText(r.infrastructure),
+        r.notes || ""
+      ]));
+    }
+
+    if (reportType === "incidents") {
+      rows.push(["Data","Exploração","Parque","Tipo","Estado","Reportado por","Descrição"]);
+      incidents.forEach(i => rows.push([
+        i.reportedAtLabel || "",
+        i.farmName || "",
+        visibleParkName(i),
+        i.typeLabel || "",
+        i.statusLabel || i.status || "",
+        i.reportedByName || "",
+        i.description || ""
+      ]));
+    }
+
+    if (reportType === "parks") {
+      rows.push(["Exploração","Parque","Rondas no período","Ocorrências no período","Última ronda no período"]);
+      parks.forEach(p => {
+        const pr = rounds.filter(r => r.parkId === p.id);
+        const pi = incidents.filter(i => i.parkId === p.id);
+        const last = pr.slice().sort((a,b) => {
+          const da = parseReportDate(a.completedAt, a.completedAtLabel)?.getTime() || 0;
+          const db = parseReportDate(b.completedAt, b.completedAtLabel)?.getTime() || 0;
+          return db - da;
+        })[0];
+
+        rows.push([
+          p.farmName || "",
+          p.name || "Parque",
+          pr.length,
+          pi.length,
+          last?.completedAtLabel || "Sem ronda"
+        ]);
+      });
+    }
+
+    if (reportType === "veterinary") {
+      const vetIncidents = incidents.filter(i => i.category === "veterinaria");
+      rows.push(["Data","Exploração","Parque","Tipo","Estado","Reportado por","Descrição"]);
+      vetIncidents.forEach(i => rows.push([
+        i.reportedAtLabel || "",
+        i.farmName || "",
+        visibleParkName(i),
+        i.typeLabel || "",
+        i.statusLabel || i.status || "",
+        i.reportedByName || "",
+        i.description || ""
+      ]));
+    }
+
+    if (reportType === "sick" || reportType === "mortality") {
       const healthInRange = (state.reportHealth || []).filter(h => {
         const i = h.incident || {};
-        const farm = document.getElementById("reportFarm")?.value || "";
-        const parkId = document.getElementById("reportPark")?.value || "";
         return reportDateInRange(i._reportDate || i.reportedAt, from, to, i.reportedAtLabel) &&
           (!farm || i.farmName === farm) &&
           (!parkId || i.parkId === parkId);
       });
 
       if (reportType === "sick") {
-        rows.push(["Data","Exploração","Parque","NR PT","Estado","Observação clínica","Diagnóstico","Tratamento","Medicamento","Dose"]);
-        healthInRange.filter(h=>h.incident?.type==="animal_doente").forEach(h=>{
-          const i=h.incident||{}, v=h.veterinary||{};
-          rows.push([
-            i.reportedAtLabel||"", i.farmName||"", visibleParkName(i), v.nrPt||"",
-            i.statusLabel||i.status||"", v.clinicalObservation||"", v.diagnosis||"",
-            v.treatment||"", v.medication||"", v.dosage||""
-          ]);
-        });
-      } else {
-        rows.push(["Data","Exploração","Parque","NR PT","Estado","Resumo necrópsia","Causa provável","Conclusão"]);
-        healthInRange.filter(h=>h.incident?.type==="animal_morto").forEach(h=>{
-          const i=h.incident||{}, v=h.veterinary||{}, n=h.necropsy||{};
-          rows.push([
-            i.reportedAtLabel||"", i.farmName||"", visibleParkName(i), v.nrPt||n.nrPt||"",
-            i.statusLabel||i.status||"", n.summary||"", n.probableCause||"", n.conclusion||""
-          ]);
-        });
+        rows.push([
+          "Data","Exploração","Parque","NR PT","Estado",
+          "Observação clínica","Diagnóstico","Tratamento","Medicamento","Dose"
+        ]);
+
+        healthInRange
+          .filter(h => h.incident?.type === "animal_doente")
+          .forEach(h => {
+            const i = h.incident || {};
+            const v = h.veterinary || {};
+            rows.push([
+              i.reportedAtLabel || "",
+              i.farmName || "",
+              visibleParkName(i),
+              v.nrPt || "",
+              i.statusLabel || i.status || "",
+              v.clinicalObservation || "",
+              v.diagnosis || "",
+              v.treatment || "",
+              v.medication || "",
+              v.dosage || ""
+            ]);
+          });
+      }
+
+      if (reportType === "mortality") {
+        rows.push([
+          "Data","Exploração","Parque","NR PT","Estado",
+          "Resumo necrópsia","Causa provável","Conclusão"
+        ]);
+
+        healthInRange
+          .filter(h => h.incident?.type === "animal_morto")
+          .forEach(h => {
+            const i = h.incident || {};
+            const v = h.veterinary || {};
+            const n = h.necropsy || {};
+            rows.push([
+              i.reportedAtLabel || "",
+              i.farmName || "",
+              visibleParkName(i),
+              v.nrPt || n.nrPt || "",
+              i.statusLabel || i.status || "",
+              n.summary || "",
+              n.probableCause || "",
+              n.conclusion || ""
+            ]);
+          });
       }
     }
 
-    downloadCsv(`BoviRonda_${reportType}_${from}_${to}.csv`, rows);
+    const safeType = String(reportNames[reportType] || reportType)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g,"")
+      .replace(/[^a-zA-Z0-9]+/g,"_")
+      .replace(/^_+|_+$/g,"");
+
+    downloadCsv(
+      `BoviRonda_${safeType}_${from || "inicio"}_${to || "fim"}.csv`,
+      rows
+    );
   }
 
   function renderHome(el) {
