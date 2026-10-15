@@ -37,42 +37,6 @@
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
   }
 
-  function photoLinks(value) {
-    try {
-      const u = new URL(String(value || ""));
-      if (u.protocol !== "https:" || !["drive.google.com", "docs.google.com", "lh3.googleusercontent.com"].includes(u.hostname)) return null;
-      const id = (u.pathname.match(/\/d\/([a-zA-Z0-9_-]+)/) || [])[1] || u.searchParams.get("id");
-      if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) return null;
-      const key = u.searchParams.get("resourcekey");
-      const suffix = key ? "&resourcekey=" + encodeURIComponent(key) : "";
-      return {
-        image: `https://lh3.googleusercontent.com/d/${id}=s1600${key ? '?resourcekey='+encodeURIComponent(key) : ''}`,
-        fallback: `https://drive.google.com/thumbnail?id=${id}&sz=w1600${suffix}`,
-        view: `https://drive.google.com/file/d/${id}/view${key ? '?resourcekey='+encodeURIComponent(key) : ''}`
-      };
-    } catch (_) { return null; }
-  }
-
-  function photoMarkup(value) {
-    const links = photoLinks(value);
-    if (!links) return "";
-    return `<div class="record-photo"><img src="${escapeHtml(links.image)}" data-photo-fallback="${escapeHtml(links.fallback)}" class="photo-preview" loading="lazy" referrerpolicy="no-referrer" alt="Fotografia do registo"><p class="photo-error hidden">Não foi possível carregar a fotografia. Verifique o acesso no Drive.</p><a href="${escapeHtml(links.view)}" target="_blank" rel="noopener noreferrer">Abrir fotografia no Drive</a></div>`;
-  }
-
-  // Captura também erros de imagens acrescentadas em janelas e listas dinâmicas.
-  document.addEventListener("error", event => {
-    const img = event.target;
-    if (!img.matches?.("img[data-photo-fallback]")) return;
-    if (img.dataset.photoFallback) {
-      const fallback = img.dataset.photoFallback;
-      img.dataset.photoFallback = "";
-      img.src = fallback;
-    } else {
-      img.hidden = true;
-      img.parentElement.querySelector(".photo-error")?.classList.remove("hidden");
-    }
-  }, true);
-
   async function api(action, payload={}) {
     if (!C.API_URL || C.API_URL.includes("COLE_AQUI")) {
       throw new Error("Configura primeiro o API_URL em config.js.");
@@ -376,11 +340,70 @@
   async function ensureReportData() {
     if (state.reportLoading) return;
     state.reportLoading = true;
+
     try {
-      const [rounds, incidents] = await Promise.all([
-        api("listRounds"),
-        api("listIncidents", {})
-      ]);
+      let rounds = null;
+      let incidents = null;
+
+      // 1) Método normal nas versões de backend que já têm listRounds.
+      try {
+        rounds = await api("listRounds");
+      } catch (err) {
+        console.warn("BoviRonda Relatórios: listRounds indisponível; a usar compatibilidade.", err);
+      }
+
+      // 2) Em Admin, aproveitar os registos administrativos já existentes.
+      if (!Array.isArray(rounds) && state.profile?.role === "admin") {
+        try {
+          const adminData = await api("listAdminRecords");
+          rounds = adminData?.rounds || [];
+          incidents = adminData?.incidents || [];
+        } catch (err) {
+          console.warn("BoviRonda Relatórios: listAdminRecords indisponível; a usar histórico por parque.", err);
+        }
+      }
+
+      // 3) Fallback universal: histórico diretamente de cada parque.
+      // getPark já existe no backend antigo e devolve até 30 rondas por parque.
+      if (!Array.isArray(rounds)) {
+        const all = [];
+        const parks = state.parks || [];
+
+        for (let i = 0; i < parks.length; i++) {
+          const p = parks[i];
+          try {
+            const data = await api("getPark", {parkId:p.id});
+            (data?.rounds || []).forEach(r => {
+              all.push({
+                ...r,
+                parkId: p.id,
+                parkName: p.name || "",
+                farmName: p.farmName || ""
+              });
+            });
+          } catch (err) {
+            console.warn("Não foi possível carregar histórico do parque", p.id, err);
+          }
+        }
+
+        const seen = new Set();
+        rounds = all.filter(r => {
+          const key = String(r.id || `${r.parkId}_${r.completedAt || r.completedAtLabel || ""}`);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).sort((a,b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
+      }
+
+      // Ocorrências continuam disponíveis nas versões antigas.
+      if (!Array.isArray(incidents)) {
+        try {
+          incidents = await api("listIncidents", {});
+        } catch {
+          incidents = [];
+        }
+      }
+
       state.rounds = rounds || [];
       state.reportIncidents = incidents || [];
     } finally {
@@ -408,7 +431,17 @@
       </div>
 
       <section class="card card-pad reports-filters">
-        <div class="reports-filter-grid">
+        <div class="reports-filter-grid reports-filter-grid-main">
+          <div class="field">
+            <label>Tipo de relatório</label>
+            <select id="reportType">
+              <option value="general">Relatório Geral</option>
+              <option value="rounds">Relatório de Rondas</option>
+              <option value="incidents">Relatório de Ocorrências</option>
+              <option value="parks">Relatório por Parque</option>
+              <option value="veterinary">Relatório Veterinário</option>
+            </select>
+          </div>
           <div class="field">
             <label>De</label>
             <input id="reportFrom" type="date" value="${defaultFrom}">
@@ -434,9 +467,9 @@
         </div>
 
         <div class="reports-actions">
-          <button id="reportApplyBtn" class="btn btn-primary" type="button">Aplicar filtros</button>
+          <button id="reportApplyBtn" class="btn btn-primary" type="button">Gerar relatório</button>
           <button id="reportCsvBtn" class="btn btn-outline" type="button">Exportar CSV</button>
-          <button id="reportPrintBtn" class="btn btn-outline" type="button">Imprimir / PDF</button>
+          <button id="reportPrintBtn" class="btn btn-outline" type="button">Guardar PDF / Imprimir</button>
         </div>
       </section>
 
@@ -464,7 +497,12 @@
     });
 
     document.getElementById("reportApplyBtn").addEventListener("click", buildReportsContent);
-    document.getElementById("reportPrintBtn").addEventListener("click", () => window.print());
+    document.getElementById("reportType").addEventListener("change", buildReportsContent);
+    document.getElementById("reportPrintBtn").addEventListener("click", () => {
+      document.body.classList.add("printing-report");
+      setTimeout(() => window.print(), 60);
+    });
+    window.addEventListener("afterprint", () => document.body.classList.remove("printing-report"));
     document.getElementById("reportCsvBtn").addEventListener("click", exportReportsCsv);
 
     fillParks();
@@ -509,127 +547,117 @@
     const root = document.getElementById("reportsContent");
     if (!root) return;
 
-    const {from,to,rounds,incidents,parks} = filteredReportData();
+    const reportType = document.getElementById("reportType")?.value || "general";
+    const {from,to,rounds,incidents,parks,farm,parkId} = filteredReportData();
+
     const distinctParkIds = new Set(rounds.map(r=>r.parkId));
     const openIncidents = incidents.filter(i=>i.status !== "resolvida");
     const vetIncidents = incidents.filter(i=>i.category === "veterinaria");
-    const operationalIncidents = incidents.filter(i=>i.category === "operacional");
     const waterProblems = rounds.filter(r=>r.water && r.water !== "ok").length;
     const feedProblems = rounds.filter(r=>r.feed && r.feed !== "ok").length;
     const infraProblems = rounds.filter(r=>r.infrastructure === "problema").length;
 
-    const parkStats = parks.map(p => {
-      const pr = rounds.filter(r=>r.parkId===p.id);
-      const pi = incidents.filter(i=>i.parkId===p.id);
-      return {
-        ...p,
-        roundCount: pr.length,
-        incidentCount: pi.length,
-        lastRound: pr.slice().sort((a,b)=>new Date(b.completedAt)-new Date(a.completedAt))[0] || null
-      };
-    }).sort((a,b)=> {
-      if (a.roundCount !== b.roundCount) return a.roundCount - b.roundCount;
-      return String(a.name||"").localeCompare(String(b.name||""),"pt",{numeric:true});
-    });
+    const selectedPark = (state.parks || []).find(p=>p.id===parkId);
+    const titleMap = {
+      general:"Relatório Geral",
+      rounds:"Relatório de Rondas",
+      incidents:"Relatório de Ocorrências",
+      parks:"Relatório por Parque",
+      veterinary:"Relatório Veterinário"
+    };
 
-    root.innerHTML = `
+    const header = `
+      <section class="report-document-header">
+        <div>
+          <div class="report-brand">MONTE DO PASTO</div>
+          <h2>${titleMap[reportType]}</h2>
+          <p>BoviRonda · ${escapeHtml(from)} a ${escapeHtml(to)}</p>
+          <small>${escapeHtml(farm || "Todas as explorações")} · ${escapeHtml(selectedPark?.name || "Todos os parques")}</small>
+        </div>
+        <div class="report-generated-at">Gerado em ${new Date().toLocaleString("pt-PT")}</div>
+      </section>`;
+
+    const summary = `
       <section class="reports-kpis">
-        <article class="card report-kpi">
-          <span>Rondas</span><strong>${rounds.length}</strong>
-          <small>${distinctParkIds.size} parques diferentes</small>
-        </article>
-        <article class="card report-kpi">
-          <span>Ocorrências</span><strong>${incidents.length}</strong>
-          <small>${openIncidents.length} ainda abertas</small>
-        </article>
-        <article class="card report-kpi">
-          <span>Veterinária</span><strong>${vetIncidents.length}</strong>
-          <small>ocorrências no período</small>
-        </article>
-        <article class="card report-kpi">
-          <span>Problemas detetados</span><strong>${waterProblems+feedProblems+infraProblems}</strong>
-          <small>água, comida ou infraestrutura</small>
-        </article>
-      </section>
+        <article class="card report-kpi"><span>Rondas</span><strong>${rounds.length}</strong><small>${distinctParkIds.size} parques</small></article>
+        <article class="card report-kpi"><span>Ocorrências</span><strong>${incidents.length}</strong><small>${openIncidents.length} abertas</small></article>
+        <article class="card report-kpi"><span>Veterinária</span><strong>${vetIncidents.length}</strong><small>no período</small></article>
+        <article class="card report-kpi"><span>Problemas</span><strong>${waterProblems+feedProblems+infraProblems}</strong><small>água/comida/infra.</small></article>
+      </section>`;
 
+    const roundsSection = `
       <section class="card card-pad report-section">
-        <div class="report-section-head">
-          <div><h3>Resumo de rondas</h3><p>${escapeHtml(from)} a ${escapeHtml(to)}</p></div>
-        </div>
-        <div class="report-mini-kpis">
-          <span>💧 <strong>${waterProblems}</strong> água</span>
-          <span>🌾 <strong>${feedProblems}</strong> alimentação</span>
-          <span>🔧 <strong>${infraProblems}</strong> infraestrutura</span>
-        </div>
-        <div class="table-wrap">
-          <table class="report-table">
-            <thead><tr><th>Data</th><th>Exploração</th><th>Parque</th><th>Colaborador</th><th>Água</th><th>Comida</th><th>Infra.</th></tr></thead>
-            <tbody>
-              ${rounds.length ? rounds.map(r=>`
-                <tr>
-                  <td>${escapeHtml(r.completedAtLabel || "")}</td>
-                  <td>${escapeHtml(r.farmName || "")}</td>
-                  <td><strong>${escapeHtml(visibleParkName(r))}</strong></td>
-                  <td>${escapeHtml(r.userName || "")}</td>
-                  <td>${escapeHtml(reportStatusText(r.water))}</td>
-                  <td>${escapeHtml(reportStatusText(r.feed))}</td>
-                  <td>${escapeHtml(reportStatusText(r.infrastructure))}</td>
-                </tr>`).join("") :
-                `<tr><td colspan="7" class="report-empty">Sem rondas no período selecionado.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-      </section>
+        <div class="report-section-head"><div><h3>Rondas</h3><p>${rounds.length} registos</p></div></div>
+        <div class="table-wrap"><table class="report-table">
+          <thead><tr><th>Data</th><th>Exploração</th><th>Parque</th><th>Colaborador</th><th>Água</th><th>Comida</th><th>Infra.</th><th>Observações</th></tr></thead>
+          <tbody>${rounds.length ? rounds.map(r=>`<tr>
+            <td>${escapeHtml(r.completedAtLabel||"")}</td>
+            <td>${escapeHtml(r.farmName||"")}</td>
+            <td><strong>${escapeHtml(visibleParkName(r))}</strong></td>
+            <td>${escapeHtml(r.userName||"")}</td>
+            <td>${escapeHtml(reportStatusText(r.water))}</td>
+            <td>${escapeHtml(reportStatusText(r.feed))}</td>
+            <td>${escapeHtml(reportStatusText(r.infrastructure))}</td>
+            <td>${escapeHtml(r.notes||"")}</td>
+          </tr>`).join("") : `<tr><td colspan="8" class="report-empty">Sem rondas.</td></tr>`}</tbody>
+        </table></div>
+      </section>`;
 
+    const incidentsSection = `
       <section class="card card-pad report-section">
-        <div class="report-section-head">
-          <div><h3>Ocorrências</h3><p>${incidents.length} registos · ${openIncidents.length} abertos</p></div>
-        </div>
-        <div class="report-mini-kpis">
-          <span>🩺 <strong>${vetIncidents.length}</strong> veterinárias</span>
-          <span>⚠ <strong>${operationalIncidents.length}</strong> operacionais</span>
-        </div>
-        <div class="table-wrap">
-          <table class="report-table">
-            <thead><tr><th>Data</th><th>Exploração</th><th>Parque</th><th>Tipo</th><th>Estado</th><th>Reportado por</th></tr></thead>
-            <tbody>
-              ${incidents.length ? incidents.map(i=>`
-                <tr>
-                  <td>${escapeHtml(i.reportedAtLabel || "")}</td>
-                  <td>${escapeHtml(i.farmName || "")}</td>
-                  <td><strong>${escapeHtml(visibleParkName(i))}</strong></td>
-                  <td>${escapeHtml(i.typeLabel || "")}</td>
-                  <td>${escapeHtml(i.statusLabel || i.status || "")}</td>
-                  <td>${escapeHtml(i.reportedByName || "")}</td>
-                </tr>`).join("") :
-                `<tr><td colspan="6" class="report-empty">Sem ocorrências no período selecionado.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-      </section>
+        <div class="report-section-head"><div><h3>Ocorrências</h3><p>${incidents.length} registos</p></div></div>
+        <div class="table-wrap"><table class="report-table">
+          <thead><tr><th>Data</th><th>Exploração</th><th>Parque</th><th>Tipo</th><th>Estado</th><th>Reportado por</th><th>Descrição</th></tr></thead>
+          <tbody>${incidents.length ? incidents.map(i=>`<tr>
+            <td>${escapeHtml(i.reportedAtLabel||"")}</td>
+            <td>${escapeHtml(i.farmName||"")}</td>
+            <td><strong>${escapeHtml(visibleParkName(i))}</strong></td>
+            <td>${escapeHtml(i.typeLabel||"")}</td>
+            <td>${escapeHtml(i.statusLabel||i.status||"")}</td>
+            <td>${escapeHtml(i.reportedByName||"")}</td>
+            <td>${escapeHtml(i.description||"")}</td>
+          </tr>`).join("") : `<tr><td colspan="7" class="report-empty">Sem ocorrências.</td></tr>`}</tbody>
+        </table></div>
+      </section>`;
 
+    const parksSection = `
       <section class="card card-pad report-section">
-        <div class="report-section-head">
-          <div><h3>Parques</h3><p>Atividade dentro do período selecionado</p></div>
-        </div>
-        <div class="table-wrap">
-          <table class="report-table">
-            <thead><tr><th>Exploração</th><th>Parque</th><th>Rondas</th><th>Ocorrências</th><th>Última ronda no período</th></tr></thead>
-            <tbody>
-              ${parkStats.length ? parkStats.map(p=>`
-                <tr>
-                  <td>${escapeHtml(p.farmName || "")}</td>
-                  <td><strong>${escapeHtml(p.name || "Parque")}</strong></td>
-                  <td>${p.roundCount}</td>
-                  <td>${p.incidentCount}</td>
-                  <td>${p.lastRound ? escapeHtml(p.lastRound.completedAtLabel || "") : '<span class="badge badge-grey">Sem ronda</span>'}</td>
-                </tr>`).join("") :
-                `<tr><td colspan="5" class="report-empty">Sem parques para os filtros selecionados.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    `;
+        <div class="report-section-head"><div><h3>Parques</h3><p>Resumo de atividade</p></div></div>
+        <div class="table-wrap"><table class="report-table">
+          <thead><tr><th>Exploração</th><th>Parque</th><th>Rondas</th><th>Ocorrências</th><th>Última ronda</th></tr></thead>
+          <tbody>${parks.length ? parks.map(p=>{
+            const pr = rounds.filter(r=>r.parkId===p.id);
+            const pi = incidents.filter(i=>i.parkId===p.id);
+            const last = pr.slice().sort((a,b)=>new Date(b.completedAt)-new Date(a.completedAt))[0];
+            return `<tr><td>${escapeHtml(p.farmName||"")}</td><td><strong>${escapeHtml(p.name||"Parque")}</strong></td><td>${pr.length}</td><td>${pi.length}</td><td>${last?escapeHtml(last.completedAtLabel||""):"Sem ronda"}</td></tr>`;
+          }).join("") : `<tr><td colspan="5" class="report-empty">Sem parques.</td></tr>`}</tbody>
+        </table></div>
+      </section>`;
+
+    const vetSection = `
+      <section class="card card-pad report-section">
+        <div class="report-section-head"><div><h3>Veterinária</h3><p>${vetIncidents.length} ocorrências</p></div></div>
+        <div class="table-wrap"><table class="report-table">
+          <thead><tr><th>Data</th><th>Exploração</th><th>Parque</th><th>Tipo</th><th>Estado</th><th>Descrição</th></tr></thead>
+          <tbody>${vetIncidents.length ? vetIncidents.map(i=>`<tr>
+            <td>${escapeHtml(i.reportedAtLabel||"")}</td>
+            <td>${escapeHtml(i.farmName||"")}</td>
+            <td><strong>${escapeHtml(visibleParkName(i))}</strong></td>
+            <td>${escapeHtml(i.typeLabel||"")}</td>
+            <td>${escapeHtml(i.statusLabel||i.status||"")}</td>
+            <td>${escapeHtml(i.description||"")}</td>
+          </tr>`).join("") : `<tr><td colspan="6" class="report-empty">Sem ocorrências veterinárias.</td></tr>`}</tbody>
+        </table></div>
+      </section>`;
+
+    let body = summary;
+    if (reportType === "general") body += roundsSection + incidentsSection + parksSection;
+    if (reportType === "rounds") body += roundsSection;
+    if (reportType === "incidents") body += incidentsSection;
+    if (reportType === "parks") body += parksSection;
+    if (reportType === "veterinary") body += vetSection;
+
+    root.innerHTML = `<div class="report-document">${header}${body}</div>`;
   }
 
   function exportReportsCsv() {
@@ -670,7 +698,7 @@
       p.daysSinceRound === null || p.daysSinceRound === undefined ? "Sem histórico" : p.daysSinceRound
     ]));
 
-    downloadCsv(`BoviRonda_Relatorio_${from}_${to}.csv`, rows);
+    downloadCsv(`BoviRonda_${document.getElementById("reportType")?.value || "relatorio"}_${from}_${to}.csv`, rows);
   }
 
   function renderHome(el) {
@@ -1035,7 +1063,7 @@
         ${roleCanRound() ? `<button id="startRoundPark" class="btn btn-primary btn-block" style="margin-top:14px">Iniciar ronda neste parque</button>` : ""}
         <div class="section-title"><div><h3>Histórico de rondas</h3></div></div>
         <div class="list">
-          ${rounds.length ? rounds.map(r => `<div class="list-item"><div class="list-main"><strong>${escapeHtml(r.completedAtLabel)}</strong><span>${escapeHtml(r.userName)} · Água: ${escapeHtml(r.waterLabel)} · Comida: ${escapeHtml(r.feedLabel)}</span>${photoMarkup(r.photoUrl)}</div></div>`).join("") : `<div class="empty">Ainda sem rondas.</div>`}
+          ${rounds.length ? rounds.map(r => `<div class="list-item"><div class="list-main"><strong>${escapeHtml(r.completedAtLabel)}</strong><span>${escapeHtml(r.userName)} · Água: ${escapeHtml(r.waterLabel)} · Comida: ${escapeHtml(r.feedLabel)}</span></div></div>`).join("") : `<div class="empty">Ainda sem rondas.</div>`}
         </div>`);
       document.getElementById("startRoundPark")?.addEventListener("click", () => {
         closeModal(); renderRoundForm(p);
@@ -1177,7 +1205,6 @@
           <span class="${r.infrastructure === "problema" ? "round-status-bad":"round-status-ok"}">🔧 ${r.infrastructure === "problema" ? "Problema":"OK"}</span>
         </div>
         ${r.notes ? `<div class="round-history-notes">${escapeHtml(r.notes)}</div>` : ""}
-        ${photoMarkup(r.photoUrl || r.FotoURL)}
       </article>`;
   }
 
@@ -1446,7 +1473,7 @@
         <div class="card card-pad">
           <div class="list-main"><strong>Reportado por ${escapeHtml(i.reportedByName)}</strong><span>${escapeHtml(i.reportedAtLabel)}</span></div>
           ${i.description ? `<p>${escapeHtml(i.description)}</p>`:""}
-          ${photoMarkup(i.photoUrl)}
+          ${i.photoUrl ? `<img src="${escapeHtml(i.photoUrl)}" class="photo-preview" alt="Fotografia da ocorrência">`:""}
         </div>
         ${canVetEdit ? vetForm(i, data.veterinary, data.necropsy) : ""}
         ${canOpEdit ? operationalForm(i) : ""}

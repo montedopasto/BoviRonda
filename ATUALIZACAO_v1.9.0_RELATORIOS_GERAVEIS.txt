@@ -1,0 +1,22 @@
+BoviRonda v1.9.0 — Relatórios geráveis
+
+Tipos:
+- Relatório Geral
+- Relatório de Rondas
+- Relatório de Ocorrências
+- Relatório por Parque
+- Relatório Veterinário
+
+Filtros:
+- período
+- exploração
+- parque
+
+Saídas:
+- Gerar relatório
+- Guardar PDF / Imprimir
+- Exportar CSV
+
+Não mostra códigos técnicos MR/TR.
+Não é necessário mexer no Code.gs.
+Atualizar no GitHub: index.html, app.js, styles.css e sw.js.

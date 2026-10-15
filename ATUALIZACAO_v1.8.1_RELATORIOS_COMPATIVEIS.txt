@@ -1,0 +1,18 @@
+BoviRonda v1.8.1 — Relatórios compatíveis com backend antigo
+
+Correção:
+- Se listRounds existir, usa listRounds.
+- Se listRounds não existir e o utilizador for Admin, usa listAdminRecords.
+- Se nenhuma das anteriores estiver disponível, carrega o histórico diretamente de cada parque através de getPark.
+- listIncidents continua a fornecer as ocorrências.
+- Assim, os Relatórios deixam de falhar com "Ação desconhecida (listRounds)".
+
+IMPORTANTE:
+- Para esta correção NÃO é necessário alterar nem publicar novamente o Code.gs.
+- Basta atualizar no GitHub:
+  - index.html
+  - app.js
+  - sw.js
+
+Nota:
+- No fallback por parque são recuperadas até 30 rondas por parque, que é o limite já existente no backend antigo.
