@@ -34,6 +34,17 @@
     toast._t = setTimeout(() => toastEl.classList.remove("show"), 2600);
   }
 
+  function directPhotoUrl(url="") {
+    const s = String(url || "").trim();
+    if (!s) return "";
+    if (s.includes("lh3.googleusercontent.com/d/")) return s;
+
+    const m = s.match(/(?:id=|\/d\/)([-\w]{20,})/);
+    if (m) return `https://lh3.googleusercontent.com/d/${m[1]}`;
+
+    return s;
+  }
+
   function escapeHtml(s="") {
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
   }
@@ -1880,7 +1891,7 @@
         <div class="card card-pad">
           <div class="list-main"><strong>Reportado por ${escapeHtml(i.reportedByName)}</strong><span>${escapeHtml(i.reportedAtLabel)}</span></div>
           ${i.description ? `<p>${escapeHtml(i.description)}</p>`:""}
-          ${i.photoUrl ? `<img src="${escapeHtml(i.photoUrl)}" class="photo-preview" alt="Fotografia da ocorrência">`:""}
+          ${i.photoUrl ? `<img src="${escapeHtml(directPhotoUrl(i.photoUrl))}" class="photo-preview" alt="Fotografia da ocorrência" referrerpolicy="no-referrer">`:""}
         </div>
         ${canVetEdit ? vetForm(i, data.veterinary, data.necropsy) : ""}
         ${canOpEdit ? operationalForm(i) : ""}
