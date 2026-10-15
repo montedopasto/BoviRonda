@@ -736,7 +736,83 @@ function savePhoto_(dataUrl,name) {
   const file=folder.createFile(blob);
   // Acesso por link para a imagem poder ser vista pela app.
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);
-  return {id:file.getId(),url:`https://drive.google.com/uc?export=view&id=${file.getId()}`};
+  return {id:file.getId(),url:`https://lh3.googleusercontent.com/d/${file.getId()}`};
+}
+
+
+/**
+ * Executar UMA VEZ após esta atualização para reparar fotografias já existentes.
+ */
+function repairPhotoPermissions() {
+  const photoRows = rows_(BR.SHEETS.PHOTOS);
+  const urlByOld = {};
+  let fixedFiles = 0;
+
+  photoRows.forEach(p => {
+    const fileId = String(p.DriveFileID || "").trim();
+    if (!fileId) return;
+
+    try {
+      const file = DriveApp.getFileById(fileId);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      const directUrl = `https://lh3.googleusercontent.com/d/${fileId}`;
+      if (p.URL) urlByOld[String(p.URL)] = directUrl;
+      fixedFiles++;
+    } catch (err) {
+      console.warn("Não foi possível reparar fotografia", fileId, err);
+    }
+  });
+
+  function repairSheetUrls_(sheetName, columnName) {
+    const sh = sheet_(sheetName);
+    const data = sh.getDataRange().getValues();
+    if (data.length < 2) return 0;
+
+    const headers = data[0].map(String);
+    const idx = headers.indexOf(columnName);
+    if (idx < 0) return 0;
+
+    let changed = 0;
+    for (let r = 1; r < data.length; r++) {
+      const oldUrl = String(data[r][idx] || "").trim();
+      if (!oldUrl) continue;
+
+      let newUrl = urlByOld[oldUrl] || "";
+      if (!newUrl) {
+        const m = oldUrl.match(/(?:id=|\/d\/)([-\w]{20,})/);
+        if (m) newUrl = `https://lh3.googleusercontent.com/d/${m[1]}`;
+      }
+
+      if (newUrl && newUrl !== oldUrl) {
+        sh.getRange(r + 1, idx + 1).setValue(newUrl);
+        changed++;
+      }
+    }
+    return changed;
+  }
+
+  const roundsChanged = repairSheetUrls_(BR.SHEETS.ROUNDS, "FotoURL");
+  const incidentsChanged = repairSheetUrls_(BR.SHEETS.INCIDENTS, "FotoURL");
+
+  const photosSh = sheet_(BR.SHEETS.PHOTOS);
+  const photosData = photosSh.getDataRange().getValues();
+  if (photosData.length >= 2) {
+    const headers = photosData[0].map(String);
+    const idIdx = headers.indexOf("DriveFileID");
+    const urlIdx = headers.indexOf("URL");
+
+    if (idIdx >= 0 && urlIdx >= 0) {
+      for (let r = 1; r < photosData.length; r++) {
+        const fileId = String(photosData[r][idIdx] || "").trim();
+        if (fileId) {
+          photosSh.getRange(r + 1, urlIdx + 1)
+            .setValue(`https://lh3.googleusercontent.com/d/${fileId}`);
+        }
+      }
+    }
+  }
+
+  return {success:true,fixedFiles,roundsChanged,incidentsChanged};
 }
 
 /* =========================
