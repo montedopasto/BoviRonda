@@ -1,0 +1,37 @@
+BoviRonda v1.9.2 — Relatórios de Saúde Animal
+
+Novos relatórios:
+- Animais Doentes
+  * data
+  * exploração
+  * parque
+  * NR PT
+  * estado
+  * observação clínica
+  * diagnóstico
+  * tratamento
+  * medicamento
+  * dose
+
+- Mortalidades
+  * data
+  * exploração
+  * parque
+  * NR PT
+  * estado
+  * resumo da necrópsia
+  * causa provável
+  * conclusão
+
+Os dados são obtidos através da ação getIncident já existente.
+Não é necessário alterar nem republicar o Code.gs.
+
+Também disponível em:
+- Guardar PDF / Imprimir
+- Exportar CSV
+
+Atualizar no GitHub:
+- index.html
+- app.js
+- styles.css
+- sw.js

@@ -16,6 +16,7 @@
     farmFilter: "Todos",
     scanner: null,
     reportIncidents: [],
+    reportHealth: [],
     reportLoading: false
   };
 
@@ -466,9 +467,32 @@
         _reportDate: parseReportDate(i.reportedAt, i.reportedAtLabel)
       }));
 
+      // Detalhes clínicos / necrópsia para relatórios de saúde animal.
+      const veterinaryIncidents = state.reportIncidents.filter(i =>
+        i.category === "veterinaria" || ["animal_doente","animal_morto"].includes(i.type)
+      );
+
+      const health = [];
+      for (let i = 0; i < veterinaryIncidents.length; i++) {
+        const incident = veterinaryIncidents[i];
+        try {
+          const detail = await api("getIncident", {incidentId: incident.id});
+          health.push({
+            incident: detail?.incident || incident,
+            veterinary: detail?.veterinary || null,
+            necropsy: detail?.necropsy || null
+          });
+        } catch (err) {
+          console.warn("Não foi possível carregar detalhe veterinário", incident.id, err);
+          health.push({incident, veterinary:null, necropsy:null});
+        }
+      }
+      state.reportHealth = health;
+
       console.info("BoviRonda Relatórios carregados:", {
         rounds: state.rounds.length,
-        incidents: state.reportIncidents.length
+        incidents: state.reportIncidents.length,
+        health: state.reportHealth.length
       });
     } finally {
       state.reportLoading = false;
@@ -504,6 +528,8 @@
               <option value="incidents">Relatório de Ocorrências</option>
               <option value="parks">Relatório por Parque</option>
               <option value="veterinary">Relatório Veterinário</option>
+              <option value="sick">Animais Doentes</option>
+              <option value="mortality">Mortalidades</option>
             </select>
           </div>
           <div class="field">
@@ -621,13 +647,24 @@
     const feedProblems = rounds.filter(r=>r.feed && r.feed !== "ok").length;
     const infraProblems = rounds.filter(r=>r.infrastructure === "problema").length;
 
+    const healthInRange = (state.reportHealth || []).filter(h => {
+      const i = h.incident || {};
+      return reportDateInRange(i._reportDate || i.reportedAt, from, to, i.reportedAtLabel) &&
+        (!farm || i.farmName === farm) &&
+        (!parkId || i.parkId === parkId);
+    });
+    const sickAnimals = healthInRange.filter(h => h.incident?.type === "animal_doente");
+    const mortalities = healthInRange.filter(h => h.incident?.type === "animal_morto");
+
     const selectedPark = (state.parks || []).find(p=>p.id===parkId);
     const titleMap = {
       general:"Relatório Geral",
       rounds:"Relatório de Rondas",
       incidents:"Relatório de Ocorrências",
       parks:"Relatório por Parque",
-      veterinary:"Relatório Veterinário"
+      veterinary:"Relatório Veterinário",
+      sick:"Animais Doentes",
+      mortality:"Mortalidades"
     };
 
     const header = `
@@ -714,12 +751,81 @@
         </table></div>
       </section>`;
 
+    const sickSection = `
+      <section class="card card-pad report-section">
+        <div class="report-section-head">
+          <div><h3>Animais Doentes</h3><p>${sickAnimals.length} registos no período</p></div>
+        </div>
+        <div class="table-wrap">
+          <table class="report-table health-report-table">
+            <thead>
+              <tr>
+                <th>Data</th><th>Exploração</th><th>Parque</th><th>NR PT</th>
+                <th>Estado</th><th>Observação clínica</th><th>Diagnóstico</th>
+                <th>Tratamento</th><th>Medicamento</th><th>Dose</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sickAnimals.length ? sickAnimals.map(h=>{
+                const i=h.incident||{}, v=h.veterinary||{};
+                return `<tr>
+                  <td>${escapeHtml(i.reportedAtLabel||"")}</td>
+                  <td>${escapeHtml(i.farmName||"")}</td>
+                  <td><strong>${escapeHtml(visibleParkName(i))}</strong></td>
+                  <td><strong>${escapeHtml(v.nrPt||"Por registar")}</strong></td>
+                  <td>${escapeHtml(i.statusLabel||i.status||"")}</td>
+                  <td>${escapeHtml(v.clinicalObservation||"")}</td>
+                  <td>${escapeHtml(v.diagnosis||"")}</td>
+                  <td>${escapeHtml(v.treatment||"")}</td>
+                  <td>${escapeHtml(v.medication||"")}</td>
+                  <td>${escapeHtml(v.dosage||"")}</td>
+                </tr>`;
+              }).join("") : `<tr><td colspan="10" class="report-empty">Sem animais doentes no período selecionado.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </section>`;
+
+    const mortalitySection = `
+      <section class="card card-pad report-section">
+        <div class="report-section-head">
+          <div><h3>Mortalidades</h3><p>${mortalities.length} registos no período</p></div>
+        </div>
+        <div class="table-wrap">
+          <table class="report-table health-report-table">
+            <thead>
+              <tr>
+                <th>Data</th><th>Exploração</th><th>Parque</th><th>NR PT</th>
+                <th>Estado</th><th>Resumo necrópsia</th><th>Causa provável</th><th>Conclusão</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${mortalities.length ? mortalities.map(h=>{
+                const i=h.incident||{}, v=h.veterinary||{}, n=h.necropsy||{};
+                return `<tr>
+                  <td>${escapeHtml(i.reportedAtLabel||"")}</td>
+                  <td>${escapeHtml(i.farmName||"")}</td>
+                  <td><strong>${escapeHtml(visibleParkName(i))}</strong></td>
+                  <td><strong>${escapeHtml(v.nrPt||n.nrPt||"Por registar")}</strong></td>
+                  <td>${escapeHtml(i.statusLabel||i.status||"")}</td>
+                  <td>${escapeHtml(n.summary||"")}</td>
+                  <td>${escapeHtml(n.probableCause||"")}</td>
+                  <td>${escapeHtml(n.conclusion||"")}</td>
+                </tr>`;
+              }).join("") : `<tr><td colspan="8" class="report-empty">Sem mortalidades no período selecionado.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </section>`;
+
     let body = summary;
     if (reportType === "general") body += roundsSection + incidentsSection + parksSection;
     if (reportType === "rounds") body += roundsSection;
     if (reportType === "incidents") body += incidentsSection;
     if (reportType === "parks") body += parksSection;
     if (reportType === "veterinary") body += vetSection;
+    if (reportType === "sick") body += sickSection;
+    if (reportType === "mortality") body += mortalitySection;
 
     const loadedInfo = `
       <div class="report-loaded-info">
@@ -729,6 +835,7 @@
   }
 
   function exportReportsCsv() {
+    const reportType = document.getElementById("reportType")?.value || "general";
     const {from,to,rounds,incidents,parks} = filteredReportData();
     const rows = [
       ["BoviRonda · Relatório", `${from} a ${to}`],
@@ -766,7 +873,46 @@
       p.daysSinceRound === null || p.daysSinceRound === undefined ? "Sem histórico" : p.daysSinceRound
     ]));
 
-    downloadCsv(`BoviRonda_${document.getElementById("reportType")?.value || "relatorio"}_${from}_${to}.csv`, rows);
+    if (reportType === "sick" || reportType === "mortality") {
+      // Para estes relatórios substituímos o conteúdo genérico por dados clínicos específicos.
+      rows.length = 0;
+      rows.push(["MONTE DO PASTO · BoviRonda"]);
+      rows.push(["Relatório", reportType === "sick" ? "Animais Doentes" : "Mortalidades"]);
+      rows.push(["Período", `${from} a ${to}`]);
+      rows.push([]);
+
+      const healthInRange = (state.reportHealth || []).filter(h => {
+        const i = h.incident || {};
+        const farm = document.getElementById("reportFarm")?.value || "";
+        const parkId = document.getElementById("reportPark")?.value || "";
+        return reportDateInRange(i._reportDate || i.reportedAt, from, to, i.reportedAtLabel) &&
+          (!farm || i.farmName === farm) &&
+          (!parkId || i.parkId === parkId);
+      });
+
+      if (reportType === "sick") {
+        rows.push(["Data","Exploração","Parque","NR PT","Estado","Observação clínica","Diagnóstico","Tratamento","Medicamento","Dose"]);
+        healthInRange.filter(h=>h.incident?.type==="animal_doente").forEach(h=>{
+          const i=h.incident||{}, v=h.veterinary||{};
+          rows.push([
+            i.reportedAtLabel||"", i.farmName||"", visibleParkName(i), v.nrPt||"",
+            i.statusLabel||i.status||"", v.clinicalObservation||"", v.diagnosis||"",
+            v.treatment||"", v.medication||"", v.dosage||""
+          ]);
+        });
+      } else {
+        rows.push(["Data","Exploração","Parque","NR PT","Estado","Resumo necrópsia","Causa provável","Conclusão"]);
+        healthInRange.filter(h=>h.incident?.type==="animal_morto").forEach(h=>{
+          const i=h.incident||{}, v=h.veterinary||{}, n=h.necropsy||{};
+          rows.push([
+            i.reportedAtLabel||"", i.farmName||"", visibleParkName(i), v.nrPt||n.nrPt||"",
+            i.statusLabel||i.status||"", n.summary||"", n.probableCause||"", n.conclusion||""
+          ]);
+        });
+      }
+    }
+
+    downloadCsv(`BoviRonda_${reportType}_${from}_${to}.csv`, rows);
   }
 
   function renderHome(el) {

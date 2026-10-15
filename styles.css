@@ -404,3 +404,9 @@ button.dashboard-alert{cursor:pointer}
   font-weight:700;
 }
 @media print{.report-loaded-info{display:none!important}}
+
+.health-report-table{min-width:1100px}
+@media print{
+  .health-report-table{min-width:0!important;font-size:9px!important}
+  .health-report-table th,.health-report-table td{padding:5px!important}
+}
