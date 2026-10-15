@@ -1317,7 +1317,7 @@
   function visibleParkName(obj) {
     if (!obj) return "Parque";
     const direct = String(obj.parkName || obj.name || "").trim();
-    if (direct) return direct;
+    if (direct) return direct.replace(/\b(?:MR|TR)[- ]?\d+\b/gi, "").replace(/^[\s·:–—-]+|[\s·:–—-]+$/g, "") || "Parque";
 
     const code = String(obj.parkCode || obj.code || "").trim();
     const pool = [
@@ -1325,7 +1325,7 @@
       ...(state.adminParks || [])
     ];
     const found = pool.find(p => String(p.code || "").trim() === code);
-    return String(found?.name || "Parque").trim() || "Parque";
+    return String(found?.name || "Parque").replace(/\b(?:MR|TR)[- ]?\d+\b/gi, "").replace(/^[\s·:–—-]+|[\s·:–—-]+$/g, "") || "Parque";
   }
 
   function statusDisplay(value) {
@@ -1427,7 +1427,7 @@
           <div class="new-round-head">
             <div>
               <h3>Registar nova ronda</h3>
-              <p>Escolha primeiro a exploração e depois o parque, ou identifique-o através do QR.</p>
+              <p>Escolha a exploração e um ou vários parques, ou identifique um parque através do QR.</p>
             </div>
           </div>
 
@@ -1441,10 +1441,13 @@
 
           <div class="round-start-row">
             <div class="field round-park-field">
-              <label for="roundParkSelect">Parque</label>
-              <select id="roundParkSelect" disabled>
-                <option value="">Escolha primeiro a exploração…</option>
-              </select>
+              <span id="roundParksLabel">Parques</span>
+              <div class="round-selection-actions">
+                <button id="selectAllRoundParks" class="btn btn-outline" type="button" disabled>Selecionar todos</button>
+                <button id="clearRoundParks" class="btn btn-outline" type="button" disabled>Limpar seleção</button>
+              </div>
+              <div id="roundParkSelect" class="round-park-checks" role="group" aria-labelledby="roundParksLabel">Escolha primeiro a exploração…</div>
+              <p id="roundParkCount" role="status">0 parques selecionados</p>
             </div>
 
             <button id="roundQrBtn" class="btn btn-outline round-qr-btn" type="button">
@@ -1476,41 +1479,41 @@
       const parkSelect = document.getElementById("roundParkSelect");
       const startBtn = document.getElementById("startSelectedRoundBtn");
 
-      const resetParkSelect = (message = "Escolha primeiro a exploração…") => {
-        parkSelect.innerHTML = `<option value="">${message}</option>`;
-        parkSelect.disabled = true;
-        startBtn.disabled = true;
+      const allBtn = document.getElementById("selectAllRoundParks");
+      const clearBtn = document.getElementById("clearRoundParks");
+      const selectedParks = () => {
+        const ids = new Set([...parkSelect.querySelectorAll("input:checked")].map(input => input.value));
+        return state.parks.filter(p => p.farmName === farmSelect.value && ids.has(String(p.id)));
       };
-
+      const updateSelection = () => {
+        const count = selectedParks().length;
+        document.getElementById("roundParkCount").textContent = `${count} parque${count === 1 ? " selecionado" : "s selecionados"}`;
+        startBtn.disabled = !count;
+        startBtn.textContent = count > 1 ? `Iniciar ronda em ${count} parques` : "Iniciar ronda";
+      };
       farmSelect.addEventListener("change", () => {
-        const farmName = farmSelect.value;
-        if (!farmName) {
-          resetParkSelect();
-          return;
-        }
-
         const farmParks = (state.parks || [])
-          .filter(p => p.farmName === farmName)
+          .filter(p => farmSelect.value && p.farmName === farmSelect.value)
           .slice()
-          .sort((a,b) => String(a.name || "").localeCompare(String(b.name || ""), "pt", {numeric:true, sensitivity:"base"}));
-
-        parkSelect.innerHTML = `
-          <option value="">Escolher parque…</option>
-          ${farmParks
-            .map(p => `<option value="${p.id}">${escapeHtml(p.name || "Parque")}</option>`)
-            .join("")}
-        `;
-        parkSelect.disabled = false;
-        startBtn.disabled = true;
+          .sort((a,b) => visibleParkName(a).localeCompare(visibleParkName(b), "pt", {numeric:true}));
+        parkSelect.innerHTML = farmParks.length ? farmParks.map(p => `
+          <label class="round-park-option"><input type="checkbox" value="${escapeHtml(p.id)}"><span>${escapeHtml(visibleParkName(p))}</span></label>
+        `).join("") : (farmSelect.value ? "Não existem parques nesta exploração." : "Escolha primeiro a exploração…");
+        allBtn.disabled = clearBtn.disabled = !farmParks.length;
+        updateSelection();
       });
-
-      parkSelect.addEventListener("change", () => {
-        startBtn.disabled = !parkSelect.value;
+      parkSelect.addEventListener("change", updateSelection);
+      allBtn.addEventListener("click", () => {
+        parkSelect.querySelectorAll("input").forEach(input => { input.checked = true; });
+        updateSelection();
       });
-
+      clearBtn.addEventListener("click", () => {
+        parkSelect.querySelectorAll("input").forEach(input => { input.checked = false; });
+        updateSelection();
+      });
       startBtn.addEventListener("click", () => {
-        const park = state.parks.find(p => p.id === parkSelect.value);
-        if (park) renderRoundForm(park);
+        const parks = selectedParks();
+        if (parks.length) renderRoundForm(parks);
       });
 
       document.getElementById("roundQrBtn").addEventListener("click", openQrScannerModal);
@@ -1669,11 +1672,15 @@
     }));
   }
 
-  function renderRoundForm(park) {
+  function renderRoundForm(selection) {
+    const parks = Array.isArray(selection) ? selection : [selection];
+    if (!parks.length) return;
+    const park = parks[0];
     const el = document.getElementById("page");
     state.page = "parks";
     el.innerHTML = `
-      <div class="page-head"><h2>Ronda · ${escapeHtml(visibleParkName(park))}</h2><p>${escapeHtml(park.farmName)}</p></div>
+      <div class="page-head"><h2>Ronda · ${parks.length === 1 ? escapeHtml(visibleParkName(park)) : `${parks.length} parques`}</h2><p>${escapeHtml(park.farmName)}</p></div>
+      ${parks.length > 1 ? `<section class="card card-pad"><strong>Parques selecionados</strong><p>${parks.map(p => escapeHtml(visibleParkName(p))).join(" · ")}</p><p>Preencha uma vez. Todos os dados, alertas e fotografia serão aplicados a cada parque selecionado.</p></section>` : ""}
       <form id="roundForm" class="form-grid">
         <section class="card card-pad">
           <h3 style="margin-top:0">Água</h3>
@@ -1714,13 +1721,14 @@
           <div class="field" style="margin-top:12px"><label>Fotografia</label><input id="roundPhoto" type="file" accept="image/*" capture="environment"></div>
           <img id="roundPhotoPreview" class="photo-preview hidden" alt="Pré-visualização">
         </section>
-        <button class="btn btn-primary btn-block" type="submit">Guardar ronda</button>
+        <button class="btn btn-primary btn-block" type="submit">${parks.length > 1 ? `Guardar rondas em ${parks.length} parques` : "Guardar ronda"}</button>
+        <section id="roundBatchStatus" class="card card-pad hidden" role="status" aria-live="polite"></section>
       </form>`;
     document.querySelectorAll('input[name="infra"]').forEach(r => r.addEventListener("change", () => {
       document.getElementById("infraExtra").classList.toggle("hidden", r.value !== "problema" || !r.checked);
     }));
     document.getElementById("roundPhoto").addEventListener("change", previewPhoto);
-    document.getElementById("roundForm").addEventListener("submit", e => submitRound(e, park));
+    document.getElementById("roundForm").addEventListener("submit", e => submitRound(e, parks));
   }
 
   function radioChoice(name,value,icon,label,checked=false) {
@@ -1750,34 +1758,99 @@
     return canvas.toDataURL("image/jpeg", .78);
   }
 
-  async function submitRound(e, park) {
+  // One request at a time: failures do not prevent the remaining parks being saved.
+  async function createRoundsSequentially(parks, payload, onProgress) {
+    const created = [], failed = [];
+    for (let index = 0; index < parks.length; index++) {
+      const park = parks[index];
+      onProgress(index, parks.length, park);
+      try {
+        const result = await api("createRound", {...payload, parkId:park.id});
+        created.push({park, result});
+      } catch (error) {
+        failed.push({park, error:String(error.message || error)});
+      }
+      onProgress(index + 1, parks.length);
+    }
+    return {created, failed};
+  }
+
+  async function submitRound(e, parks) {
     e.preventDefault();
-    const btn = e.submitter;
-    btn.disabled = true; btn.textContent = "A guardar…";
+    const form = e.currentTarget;
+    if (form.dataset.saving === "true") return;
+    const btn = form.querySelector('[type="submit"]');
+    const status = document.getElementById("roundBatchStatus");
+    let payload;
+    // Freeze the common values before disabling fields; preserve this snapshot for retries.
     try {
-      const fd = new FormData(e.currentTarget);
-      const photoFile = document.getElementById("roundPhoto").files?.[0];
-      const photo = await fileToBase64(photoFile);
-      const payload = {
-        parkId: park.id,
-        water: fd.get("water"),
-        feed: fd.get("feed"),
+      const fd = new FormData(form);
+      payload = {
+        water: fd.get("water"), feed: fd.get("feed"),
         animalSick: document.getElementById("animalSick").checked,
         animalDead: document.getElementById("animalDead").checked,
         infrastructure: fd.get("infra"),
-        infrastructureType: document.getElementById("infraType")?.value || "",
-        notes: document.getElementById("roundNotes").value.trim(),
-        photoDataUrl: photo
+        infrastructureType: document.getElementById("infraType").value || "",
+        notes: document.getElementById("roundNotes").value.trim()
       };
-      const result = await api("createRound", payload);
-      toast(`Ronda guardada · ${result.incidentsCreated} ocorrência(s) criada(s).`);
-      await refreshAll();
-      state.page = "rounds";
-      renderShell();
-    } catch (err) {
-      toast(err.message);
-      btn.disabled = false; btn.textContent = "Guardar ronda";
+      setBusy(true);
+      status.textContent = "A preparar fotografia…";
+      payload.photoDataUrl = await fileToBase64(document.getElementById("roundPhoto").files?.[0]);
+    } catch (error) {
+      setBusy(false);
+      status.textContent = `Não foi possível preparar a ronda: ${publicRoundError(error.message)}. Nenhum parque foi enviado.`;
+      return;
     }
+    let created = [], failed = [];
+    function setBusy(busy) {
+      form.dataset.saving = String(busy);
+      form.querySelectorAll("input, select, textarea, button").forEach(control => { control.disabled = busy; });
+      document.querySelectorAll("[data-page], #logoutBtn").forEach(control => { control.disabled = busy; });
+      status.classList.remove("hidden");
+      if (busy) window.addEventListener("beforeunload", preventLeaving);
+      else window.removeEventListener("beforeunload", preventLeaving);
+    }
+    function preventLeaving(event) { event.preventDefault(); event.returnValue = ""; }
+    async function save(pending) {
+      setBusy(true);
+      const batch = await createRoundsSequentially(pending, payload, (done, total, park) => {
+        btn.textContent = `A guardar… ${done}/${total}`;
+        status.textContent = park ? `A guardar ${done + 1} de ${total}: ${visibleParkName(park)}` : `${done} de ${total} processados`;
+      });
+      created.push(...batch.created);
+      failed = batch.failed;
+      setBusy(false);
+      // Completed parks must never be submitted again from this form.
+      form.querySelectorAll("input, select, textarea").forEach(control => { control.disabled = true; });
+      btn.disabled = true;
+      btn.textContent = "Gravação terminada";
+      status.innerHTML = `<h3>Resumo da gravação</h3>
+        <p><strong>Criados: ${created.length}</strong> · <strong>Falhados: ${failed.length}</strong> · Total: ${parks.length}</p>
+        ${created.length ? `<p>Criados: ${created.map(item => escapeHtml(visibleParkName(item.park))).join(" · ")}</p>` : ""}
+        ${failed.length ? `<ul>${failed.map(item => `<li><strong>${escapeHtml(visibleParkName(item.park))}</strong>: ${escapeHtml(publicRoundError(item.error))}</li>`).join("")}</ul>
+        <p>Se houve uma falha de ligação, confirme o histórico antes de repetir: o servidor pode ter guardado a ronda sem devolver confirmação.</p>
+        <button id="retryFailedRounds" class="btn btn-outline" type="button">Repetir apenas os ${failed.length} falhados</button>` : ""}
+        <button id="finishRounds" class="btn btn-primary" type="button">Ver rondas / atualizar</button>`;
+      document.getElementById("retryFailedRounds")?.addEventListener("click", () => {
+        if (form.dataset.saving !== "true") save(failed.map(item => item.park));
+      });
+      document.getElementById("finishRounds").addEventListener("click", async event => {
+        event.currentTarget.disabled = true;
+        try {
+          await loadInitialData();
+          state.page = "rounds";
+          renderShell();
+        } catch (error) {
+          event.currentTarget.disabled = false;
+          toast(`Rondas processadas. Não foi possível atualizar: ${publicRoundError(error.message)}`);
+        }
+      });
+    }
+    await save(parks);
+  }
+
+  function publicRoundError(message) {
+    return String(message || "Erro ao guardar a ronda.").replace(/\b(?:MR|TR)[- ]?\d+\b/gi, "parque");
   }
 
   function renderIncidents(el) {

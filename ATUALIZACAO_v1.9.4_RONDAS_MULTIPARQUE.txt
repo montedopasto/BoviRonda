@@ -1,0 +1,39 @@
+BoviRonda v1.9.4 — Rondas em vários parques
+Base: BoviRonda_v1.9.3_EXPORTACAO_CORRIGIDA.zip
+
+INSTALAR
+Substituir no GitHub: index.html, app.js, styles.css e sw.js.
+Manter o config.js com o endereço API_URL da instalação atual.
+Code.gs NÃO precisa de alteração; o ficheiro incluído é idêntico ao da v1.9.3.
+Fechar e voltar a abrir a PWA após a atualização. A cache passa a v1.9.4.
+O ZIP é completo e tem todos os ficheiros na raiz.
+
+UTILIZAR
+Rondas > Registar nova ronda > escolher Exploração.
+Marcar um ou vários parques; usar Selecionar todos / Limpar seleção se necessário.
+O contador e o botão mostram o número selecionado. Trocar exploração limpa a seleção.
+Preencher o formulário uma única vez e guardar.
+Água, alimentação, infraestruturas, animais doentes/mortos, observações e foto
+são aplicados a CADA parque selecionado, incluindo as ocorrências correspondentes.
+O QR e a entrada por um parque continuam a abrir uma ronda individual.
+
+GRAVAÇÃO
+Usa createRound, uma chamada de cada vez, sem nova ação backend.
+Mostra progresso e mantém o resumo de criados, falhados e erros no ecrã.
+Uma falha não interrompe os parques seguintes.
+A repetição envia apenas os falhados e mantém os mesmos dados do formulário.
+Os parques com confirmação de sucesso nunca voltam a ser enviados nesta operação.
+Em falha de ligação, confirmar o histórico antes de repetir: o backend existente
+não garante idempotência e pode ter guardado uma ronda sem devolver confirmação.
+A navegação da app fica desativada durante a gravação e o navegador é avisado
+se se tentar sair da página. A operação requer manter a app aberta e ligação ativa.
+Ver rondas / atualizar recarrega os dados sem apagar o resumo se a atualização falhar.
+
+VALIDAÇÃO
+Sintaxe: app.js, sw.js, config.js e Code.gs.
+Testes num navegador local com API simulada: seleção e troca de exploração,
+selecionar todos/limpar/contador, campos e foto comuns, sequência de pedidos,
+falha parcial e total, repetição só de falhados, registo individual,
+nomes sem códigos e disposição em telemóvel/computador.
+Fluxo QR e exportação de relatórios preservados da v1.9.3.
+Não foram criados registos no backend real durante os testes.
