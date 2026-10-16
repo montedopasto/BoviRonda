@@ -1,0 +1,52 @@
+BoviRonda v1.9.8 — resolver várias ocorrências
+Base: v1.9.7, com as fotografias já corrigidas.
+
+COMO INSTALAR
+1. Na Google Sheet existente, abra Extensões > Apps Script.
+2. Substitua todo o conteúdo do Code.gs pelo Code.gs deste ZIP e guarde.
+3. Implementar > Gerir implementações > aplicação Web atual > Editar (lápis).
+4. Em Versão, escolha Nova versão e carregue em Implementar. Mantenha o URL /exec e as definições atuais de execução e acesso.
+5. No alojamento atual, substitua estes quatro ficheiros na mesma pasta:
+   app.js
+   index.html
+   styles.css
+   sw.js
+6. Conserve o seu config.js e respetivo API_URL. A cópia incluída corresponde à base utilizada; não a use para substituir uma configuração diferente em produção.
+7. Feche e reabra a app e atualize a página. O cache passa para bovironda-v1.9.8 e os recursos usam v=198-20261016. Se houver CDN, invalide index.html e sw.js.
+
+NÃO É NECESSÁRIO EXECUTAR NENHUMA FUNÇÃO NO EDITOR.
+NÃO EXECUTE setupBoviRonda.
+NÃO REPITA A REPARAÇÃO DAS FOTOGRAFIAS: esta atualização não precisa de alterar as fotografias.
+Não há mudanças de estrutura nas folhas nem migração de dados.
+O ZIP é flat, sem pasta adicional.
+
+COMO USAR
+Abra Ocorrências.
+Marque as caixas junto às ocorrências que quer resolver, ou use Selecionar todas.
+O contador e o botão mostram quantas estão selecionadas.
+Carregue em Resolver N selecionadas.
+Confira a lista, escreva uma nota comum se desejar e confirme em Resolver N ocorrências.
+A app mostra o progresso e o resultado: resolvidas agora, já resolvidas e não resolvidas ou por confirmar.
+As pendentes continuam selecionadas na lista para poder repetir só essas.
+Pode continuar a abrir qualquer ocorrência e a tratá-la individualmente.
+
+PERMISSÕES E DADOS
+Admin e chefia podem resolver ocorrências operacionais.
+Admin e veterinário podem resolver ocorrências veterinárias.
+O perfil utilizador mantém a consulta atual, sem seleção para resolver.
+Selecionar todas abrange apenas as ocorrências apresentadas que o perfil tem permissão para resolver; não inclui as já resolvidas.
+O servidor volta a verificar a sessão, o perfil e o acesso ao parque em cada pedido.
+Nos casos veterinários, mantém os requisitos atuais: NR PT já registado e, para animal morto, resumo de necrópsia já registado. Se faltar algum, indica qual e deixa essa ocorrência pendente para completar na ficha individual.
+Não altera nem preenche automaticamente diagnósticos, tratamentos, NR PT, dados de necrópsia, fotografias ou descrições.
+Regista a data de resolução, quem resolveu e a atualização em cada ocorrência. Regista BULK_RESOLVE no AuditLog.
+A nota comum é acrescentada à nota existente; não apaga notas anteriores. Se a nota comum estiver vazia, preserva a anterior.
+Uma ocorrência já resolvida não é alterada nem recebe nova data/nota ao repetir um pedido.
+O processamento é feito em grupos de 25, com resultados por ocorrência. Uma falha não impede as restantes de serem processadas.
+Se a ligação cair, algumas gravações podem ter chegado ao servidor: o resultado identifica-as como não confirmadas. Atualize a lista ou repita; as já resolvidas são reconhecidas sem nova alteração.
+
+VALIDAÇÃO
+Passaram as verificações de sintaxe do backend e dos ficheiros JavaScript do frontend.
+Passaram os testes simulados de permissões, parques, seleção, limites, duplicados, falhas parciais, datas, autor, preservação das notas/fotos/dados clínicos, requisitos veterinários, repetição segura e resultados por lote.
+A implementação de gravação e apresentação das fotografias foi preservada relativamente à v1.9.7.
+Não foi alterada a sua aplicação em produção nem resolvida qualquer ocorrência real durante a preparação do ZIP.
+Após instalar, valide selecionando duas ocorrências reais que queira efetivamente resolver. Confirme o resumo e as datas/autor no histórico ou nas folhas.

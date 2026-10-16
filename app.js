@@ -1952,15 +1952,108 @@
     return String(message || "Erro ao guardar a ronda.").replace(/\b(?:MR|TR)[- ]?\d+\b/gi, "parque");
   }
 
-  function renderIncidents(el) {
+  function canResolveIncident(i) {
+    const role=state.profile?.role;
+    return i.status!=="resolvida" && (i.category==="operacional" ? ["admin","chefia"].includes(role) : i.category==="veterinaria" && ["admin","veterinario"].includes(role));
+  }
+
+  function renderIncidents(el, selected=new Set()) {
     let list = state.incidents || [];
     if (!roleCanSeeVet()) list = list.filter(i => i.category !== "veterinaria");
     if (!roleCanSeeOperations() && state.profile.role !== "admin") list = list.filter(i => i.reportedById === state.profile.id);
-
+    const eligible=list.filter(canResolveIncident), allowed=new Set(eligible.map(i=>i.id));
+    [...selected].forEach(id=>{if(!allowed.has(id)) selected.delete(id);});
     el.innerHTML = `
       <div class="page-head"><h2>Ocorrências</h2><p>Alertas operacionais e veterinários.</p></div>
-      <section class="list">${list.map(incidentListItem).join("") || `<div class="card empty">Sem ocorrências abertas.</div>`}</section>`;
+      ${eligible.length ? `<section class="card card-pad incident-bulk-bar" aria-label="Resolver várias ocorrências">
+        <label class="incident-select-all"><input id="incidentSelectAll" type="checkbox"> Selecionar todas</label>
+        <span id="incidentSelectionCount" role="status" aria-live="polite"></span>
+        <button id="resolveSelectedIncidents" class="btn btn-primary" type="button" disabled>Resolver selecionadas</button>
+      </section>` : ""}
+      <section class="list">${list.map(i=>`<div class="incident-select-row ${allowed.has(i.id)?'is-selectable':''}">
+        ${allowed.has(i.id) ? `<label class="incident-select-box"><input type="checkbox" class="incident-select" value="${escapeHtml(i.id)}" aria-label="Selecionar ${escapeHtml(i.typeLabel||i.type)} · ${escapeHtml(i.farmName)} · ${escapeHtml(visibleParkName(i))}" ${selected.has(i.id)?'checked':''}></label>` : ""}
+        ${incidentListItem(i)}</div>`).join("") || `<div class="card empty">Sem ocorrências abertas.</div>`}</section>`;
     bindIncidentButtons();
+    const boxes=[...el.querySelectorAll(".incident-select")], all=el.querySelector("#incidentSelectAll"), button=el.querySelector("#resolveSelectedIncidents");
+    if(!all) return;
+    function updateSelection() {
+      all.checked=selected.size===eligible.length;
+      all.indeterminate=selected.size>0 && selected.size<eligible.length;
+      el.querySelector("#incidentSelectionCount").textContent=`${selected.size} selecionada${selected.size===1?'':'s'}`;
+      button.disabled=!selected.size;
+      button.textContent=selected.size ? `Resolver ${selected.size} selecionada${selected.size===1?'':'s'}` : "Resolver selecionadas";
+      boxes.forEach(box=>box.closest(".incident-select-row").classList.toggle("is-selected",box.checked));
+    }
+    boxes.forEach(box=>box.addEventListener("change",()=>{
+      if(box.checked) selected.add(box.value); else selected.delete(box.value);
+      updateSelection();
+    }));
+    all.addEventListener("change",()=>{
+      boxes.forEach(box=>{box.checked=all.checked;if(all.checked) selected.add(box.value);else selected.delete(box.value);});
+      updateSelection();
+    });
+    button.addEventListener("click",()=>confirmResolveIncidents(list.filter(i=>selected.has(i.id)),el,selected));
+    updateSelection();
+  }
+
+  async function resolveIncidentBatches(ids,note,onProgress) {
+    const result={resolved:[],alreadyResolved:[],failed:[],warnings:[]};
+    for(let offset=0;offset<ids.length;offset+=25) {
+      const chunk=ids.slice(offset,offset+25);
+      try {
+        const batch=await api("resolveIncidentsBulk",{incidentIds:chunk,note});
+        result.resolved.push(...batch.resolved);
+        result.alreadyResolved.push(...batch.alreadyResolved);
+        result.failed.push(...batch.failed);
+        result.warnings.push(...(batch.warnings||[]));
+      } catch(error) {
+        chunk.forEach(id=>result.failed.push({id,message:`Não confirmado: ${error.message}. Atualize a lista ou repita; as já resolvidas não serão alteradas.`}));
+      }
+      onProgress(Math.min(offset+chunk.length,ids.length),ids.length);
+    }
+    return result;
+  }
+
+  function confirmResolveIncidents(incidents,el,selected) {
+    if(!incidents.length) return;
+    const label=i=>`${i.typeLabel||i.type} · ${i.farmName} · ${visibleParkName(i)}`;
+    showModal(`
+      <div class="modal-head"><h2>Resolver ${incidents.length} ocorrência${incidents.length===1?'':'s'}</h2><button type="button" class="icon-btn modal-close" aria-label="Fechar">×</button></div>
+      <p>As ocorrências selecionadas vão ficar como <strong>Resolvidas</strong>, com a data e o seu nome.</p>
+      <ul class="incident-bulk-preview">${incidents.map(i=>`<li>${escapeHtml(label(i))}</li>`).join("")}</ul>
+      ${incidents.some(i=>i.category==="veterinaria") ? '<p>Nos casos veterinários, o NR PT e, em caso de morte, o resumo da necrópsia têm de estar preenchidos. Os dados clínicos serão mantidos.</p>' : ''}
+      <form id="bulkResolveForm" class="form-grid">
+        <div class="field"><label for="bulkResolveNote">Nota de resolução para todas (opcional)</label><textarea id="bulkResolveNote" maxlength="2000" placeholder="Ex.: Bebedouros verificados e reparados."></textarea></div>
+        <p id="bulkResolveProgress" role="status" aria-live="polite"></p>
+        <div id="bulkResolveResult" role="status"></div>
+        <div class="incident-bulk-actions"><button type="button" class="btn btn-outline modal-close">Cancelar</button><button id="bulkResolveSubmit" type="submit" class="btn btn-primary">Resolver ${incidents.length} ocorrência${incidents.length===1?'':'s'}</button></div>
+      </form>`);
+    const root=document.getElementById("modalRoot"), form=root.querySelector("#bulkResolveForm");
+    form.addEventListener("submit",async event=>{
+      event.preventDefault();
+      if(form.dataset.submitted) return;
+      form.dataset.submitted="true";root.dataset.busy="true";
+      const note=root.querySelector("#bulkResolveNote").value.trim();
+      root.querySelectorAll("button,textarea").forEach(control=>control.disabled=true);
+      const progress=root.querySelector("#bulkResolveProgress");
+      progress.textContent=`A resolver 0 de ${incidents.length}…`;
+      const result=await resolveIncidentBatches(incidents.map(i=>i.id),note,(done,total)=>{progress.textContent=`A processar ${done} de ${total}…`;});
+      const completed=new Set([...result.resolved,...result.alreadyResolved]);
+      completed.forEach(id=>selected.delete(id));
+      state.incidents=state.incidents.filter(i=>!completed.has(i.id));
+      let refreshError="";
+      try { await loadInitialData(); } catch(error) { refreshError=`Não foi possível atualizar os restantes dados: ${error.message}`; }
+      renderIncidents(el,selected);
+      const byId=new Map(incidents.map(i=>[i.id,i]));
+      progress.textContent="Processamento terminado.";
+      root.querySelector("#bulkResolveResult").innerHTML=`<p><strong>Resolvidas: ${result.resolved.length}</strong> · Já resolvidas: ${result.alreadyResolved.length} · Não resolvidas ou por confirmar: ${result.failed.length}</p>
+        ${result.failed.length ? `<ul>${result.failed.map(f=>`<li><strong>${escapeHtml(byId.has(f.id)?label(byId.get(f.id)):f.id)}</strong>: ${escapeHtml(f.message)}</li>`).join("")}</ul><p>As ocorrências pendentes continuam selecionadas na lista para poder repetir apenas essas.</p>` : ''}
+        ${result.warnings.length?`<ul>${result.warnings.map(w=>`<li>${escapeHtml(byId.has(w.id)?label(byId.get(w.id)):w.id)}: ${escapeHtml(w.message)}</li>`).join("")}</ul>`:''}
+        ${refreshError?`<p>${escapeHtml(refreshError)}</p>`:''}`;
+      delete root.dataset.busy;
+      root.querySelectorAll(".modal-close").forEach(control=>{control.disabled=false;if(control.classList.contains("btn"))control.textContent="Fechar";});
+      root.querySelector("#bulkResolveSubmit").classList.add("hidden");
+    });
   }
 
   function bindIncidentButtons() {
@@ -2723,7 +2816,7 @@
     root.addEventListener("click",e=>{if(e.target===root)closeModal()});
     root.querySelectorAll(".modal-close").forEach(b=>b.addEventListener("click",closeModal));
   }
-  function closeModal(){document.getElementById("modalRoot")?.remove()}
+  function closeModal(){const root=document.getElementById("modalRoot");if(root?.dataset.busy!=="true")root?.remove()}
 
   async function logout() {
     try { await api("logout"); } catch {}

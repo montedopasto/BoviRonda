@@ -421,3 +421,17 @@ button.dashboard-alert{cursor:pointer}
 #roundBatchStatus button { margin:6px 6px 0 0; }
 
 @media (max-width:520px) { .round-start-row { grid-template-columns:minmax(0,1fr); } .round-qr-btn { justify-self:start; } }
+
+/* Multiple incident resolution */
+.incident-bulk-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.incident-bulk-bar .btn{margin-left:auto}
+.incident-select-all{display:flex;align-items:center;gap:10px;min-height:44px;font-weight:700;cursor:pointer}
+.incident-select-row{display:flex;align-items:center;gap:8px;border-radius:20px}
+.incident-select-row .incident-open{flex:1;min-width:0}
+.incident-select-box{display:flex;align-items:center;justify-content:center;width:44px;min-height:56px;flex:0 0 44px;cursor:pointer}
+.incident-select-box input,.incident-select-all input{width:24px;height:24px;accent-color:var(--green);cursor:pointer}
+.incident-select-row.is-selected{background:var(--green-soft);box-shadow:0 0 0 2px var(--green)}
+.incident-bulk-preview{max-height:220px;overflow:auto;padding-left:24px;line-height:1.6}
+.incident-bulk-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+#bulkResolveResult ul{padding-left:22px;line-height:1.5;overflow-wrap:anywhere}
+@media(max-width:560px){.incident-bulk-bar .btn{width:100%;margin-left:0}.incident-select-row{gap:0}.incident-bulk-actions .btn{flex:1}}

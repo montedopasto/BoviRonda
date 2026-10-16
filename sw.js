@@ -1,5 +1,5 @@
-const CACHE = "bovironda-v1.9.7";
-const CORE = ["./","./index.html","./styles.css?v=197-20261016","./app.js?v=197-20261016","./config.js?v=197-20261016","./manifest.json?v=197-20261016"];
+const CACHE = "bovironda-v1.9.8";
+const CORE = ["./","./index.html","./styles.css?v=198-20261016","./app.js?v=198-20261016","./config.js?v=198-20261016","./manifest.json?v=198-20261016"];
 self.addEventListener("install", e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting())));
 self.addEventListener("activate", e => {
   e.waitUntil(
