@@ -1,0 +1,69 @@
+BoviRonda v1.9.7 — fotografias de rondas e ocorrências
+Base: BoviRonda_v1.9.6_FOTOS_REPOSTAS.zip, a versão mais recente encontrada nos ficheiros locais disponíveis.
+
+1. ATUALIZAR O BACKEND
+Abra a Google Sheet EXISTENTE da BoviRonda > Extensões > Apps Script.
+Substitua TODO o conteúdo do ficheiro Code.gs pelo Code.gs deste ZIP. Guarde.
+Não crie um segundo ficheiro com funções duplicadas. Não altere a folha ou os seus dados.
+NÃO EXECUTE setupBoviRonda: essa função original limpa as folhas.
+
+2. PUBLICAR A NOVA VERSÃO DO BACKEND
+Apps Script > Implementar > Gerir implementações > selecione a aplicação Web atual > Editar (lápis).
+Em Versão, escolha Nova versão > Implementar.
+Mantenha Executar como: Eu (proprietário com acesso à pasta das fotos).
+Mantenha o acesso da aplicação Web compatível com o frontend atual (Qualquer pessoa).
+Use a implementação atual para manter o mesmo URL /exec.
+A ação getPhoto exige uma sessão válida da BoviRonda e uma referência num registo acessível; o URL público da aplicação Web não dispensa essa autenticação.
+
+3. EXECUTAR UMA ÚNICA VEZ
+No editor Apps Script, selecione exatamente:
+  repararFotosBoviRonda
+Carregue em Executar e autorize o acesso solicitado a Sheets, Drive e gestão de acionadores.
+Não execute continuarReparacaoFotosBoviRonda nem setupBoviRonda.
+A função cria cópias BackupFoto_DATA_Rondas, BackupFoto_DATA_Ocorrencias e BackupFoto_DATA_Fotos no mesmo ficheiro, antes de alterar qualquer célula.
+Cria também ReparacaoFotos_DATA com os valores anteriores, novos valores e resultado por célula.
+Se houver muitas fotografias, continua em lotes através de um acionador a cada 5 minutos. Basta iniciar uma vez.
+O fim é identificado por CONCLUÍDO na última linha do registo; o acionador é removido automaticamente.
+CONCLUÍDO significa que percorreu todas as linhas: confirme também as linhas com Erro, Não reconhecido ou Fórmula preservada.
+Executar de novo a função de entrada retoma um trabalho interrompido, ou informa que já concluiu; não cria outra reparação quando já terminou.
+
+A reparação atua em FotoURL de Rondas/Ocorrencias e URL de Fotos, reconhecendo DriveFileID e relações RondaID/OcorrenciaID quando faltam URLs.
+Mantém linhas, IDs, observações, fórmulas e restantes dados. Não elimina ficheiros nem recria folhas existentes.
+Preserva links de ficheiros inacessíveis e regista o erro; não consegue recuperar ficheiros apagados ou sem acesso pelo proprietário da implementação.
+As fórmulas não são substituídas: reveja as que forem indicadas no registo.
+Tenta ativar Qualquer pessoa com a ligação / Leitor nas fotografias referenciadas. Isto permite visualizar por ligação a quem possuir o URL, sem tornar a pasta inteira pública.
+Se a política Google Workspace impedir esta partilha, regista o bloqueio e mantém a alternativa autenticada da app.
+
+4. ATUALIZAR O FRONTEND
+Na mesma pasta/raiz do alojamento atual, substitua exatamente:
+  app.js
+  index.html
+  sw.js
+Conserve o seu config.js atual e o URL API_URL /exec. O config.js incluído no ZIP é a cópia da v1.9.6 usada como base; só o substitua se corresponder à sua implementação.
+styles.css, manifest.json e monte-do-pasto-logo.png estão incluídos para um pacote completo e não têm alterações funcionais.
+Não coloque os ficheiros dentro de uma subpasta adicional: o ZIP é flat.
+
+5. REABRIR E CONFIRMAR
+Depois de publicar os ficheiros e a nova implementação Apps Script, feche e reabra a app/PWA, atualize a página e entre novamente.
+O cache passa para bovironda-v1.9.7; index.html referencia recursos com v=197-20261016.
+Se o alojamento usar CDN, invalide o cache de index.html e sw.js. Se ainda aparecer a versão antiga, faça uma atualização forçada no navegador.
+Confirme uma ronda antiga no histórico, uma ocorrência antiga e uma ronda nova com fotografia.
+Confirme também na ficha do parque e na administração.
+Para testar a alternativa, bloqueie temporariamente lh3.googleusercontent.com e drive.google.com nas ferramentas de rede do navegador: a imagem deve aparecer através do pedido POST getPhoto ao Apps Script.
+Sem sessão válida, getPhoto deve recusar a imagem; um fileId sem ligação a registos acessíveis também deve ser recusado.
+Fotografias não são disponibilizadas offline por esta alteração.
+
+O QUE FOI CORRIGIDO
+savePhoto_ descodifica o data URL, cria Blob com o MIME original e grava o ficheiro na pasta BOVIRONDA_PHOTO_FOLDER_ID. Aceita JPEG, PNG, WebP e GIF até 12 MB.
+Guarda um URL thumbnail compatível com <img>, incluindo resourcekey quando existir, e regista a nova fotografia na folha Fotos se essa folha existir.
+As respostas das rondas passaram a incluir photoUrl; referências históricas em Fotos e na ronda associada são aproveitadas.
+O frontend normaliza URLs /file/d/, open?id, uc, thumbnail, lh3 e IDs simples; tenta lh3, thumbnail e uc e depois o backend autenticado. Há temporizadores, limite de 3 pedidos simultâneos, deduplicação e indicação de erro com ligação para o Drive.
+ContentService não suporta resposta binária de imagem num doGet. A alternativa implementada é POST getPhoto com token no corpo, leitura Drive do Blob e resposta JSON {mime,base64}; a app converte em data URL para <img>. Não expõe o token da sessão no URL da imagem nem tokens OAuth.
+A alternativa aceita apenas ficheiros referenciados em Rondas/Ocorrencias/Fotos associados a parques visíveis na sessão. Não permite ler ficheiros arbitrários do Drive do proprietário.
+As imagens e respostas da API não entram no cache persistente da PWA. Os limites de 12 MB e os formatos indicados também se aplicam à alternativa; ficheiros maiores ou formatos antigos não suportados podem ser abertos no Drive.
+
+VALIDAÇÃO
+Sintaxe JavaScript validada em Code.gs, app.js, sw.js e config.js.
+Testes simulados: gravação, formatos, bloqueio de partilha, autorização por registo, rejeição de fileId arbitrário, links antigos/resourcekey, reparação das três folhas, recuperação por relação, cópias de segurança, fórmulas preservadas, erro sem perda de URL, repetição segura, cadeia de fallback, deduplicação e exclusão da API/Drive do cache.
+Não foi executado setupBoviRonda nem feita qualquer alteração no seu Drive, Sheets, Apps Script ou alojamento reais.
+A validação final com as fotografias reais depende de publicar esta versão e executar a reparação acima; não foi possível comprovar o funcionamento em produção a partir dos ficheiros locais.

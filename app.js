@@ -38,7 +38,104 @@
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
   }
 
-  async function api(action, payload={}) {
+  function photoLinks(value) {
+    try {
+      const text=String(value||"").trim();
+      const raw=/^[A-Za-z0-9_-]{10,}$/.test(text);
+      const u=raw ? null : new URL(text);
+      if(u && (u.protocol!=="https:" || !["drive.google.com","docs.google.com","lh3.googleusercontent.com"].includes(u.hostname))) return null;
+      const id=raw ? text : ((u.pathname.match(/\/d\/([A-Za-z0-9_-]+)/)||[])[1] || u.searchParams.get("id"));
+      if(!id || !/^[A-Za-z0-9_-]{10,}$/.test(id)) return null;
+      const key=u?.searchParams.get("resourcekey"), suffix=key ? "&resourcekey="+encodeURIComponent(key) : "";
+      return {id, image:`https://lh3.googleusercontent.com/d/${id}=s1600${key?'?resourcekey='+encodeURIComponent(key):''}`,
+        fallbacks:[`https://drive.google.com/thumbnail?id=${id}&sz=w1600${suffix}`,`https://drive.google.com/uc?export=view&id=${id}${suffix}`],
+        view:`https://drive.google.com/file/d/${id}/view${key?'?resourcekey='+encodeURIComponent(key):''}`};
+    } catch (_) { return null; }
+  }
+  function photoMarkup(value) {
+    const links=photoLinks(value);
+    if(!links) return value ? '<p class="photo-error">Ligação de fotografia não reconhecida.</p>' : "";
+    return `<div class="record-photo"><img src="${escapeHtml(links.image)}" data-photo-id="${links.id}" data-photo-steps="${escapeHtml(JSON.stringify(links.fallbacks))}" class="photo-preview" loading="lazy" referrerpolicy="no-referrer" alt="Fotografia do registo"><p class="photo-error hidden" role="status">Não foi possível carregar a fotografia. Confirme a sessão e a implementação do Apps Script ou abra no Drive.</p><a href="${escapeHtml(links.view)}" target="_blank" rel="noopener noreferrer">Abrir fotografia no Drive</a></div>`;
+  }
+  // Deduplicate simultaneous requests, limit concurrent Drive reads, retain no image cache.
+  const photoPending=new Map(), photoQueue=[];
+  let photoActive=0;
+  function pumpPhotos() {
+    while(photoActive<3 && photoQueue.length) {
+      const task=photoQueue.shift(); photoActive++;
+      task().finally(()=>{photoActive--;pumpPhotos();});
+    }
+  }
+  function sessionPhoto(id,token) {
+    const key=token+":"+id;
+    if(photoPending.has(key)) return photoPending.get(key);
+    const promise=new Promise((resolve,reject)=>{
+      photoQueue.push(async()=>{
+        const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),30000);
+        try {
+          if(state.session?.token!==token) throw new Error("Sessão alterada.");
+          const photo=await api("getPhoto",{fileId:id},{signal:controller.signal});
+          if(state.session?.token!==token) throw new Error("Sessão alterada.");
+          if(!["image/jpeg","image/png","image/webp","image/gif"].includes(photo.mime) || !/^[A-Za-z0-9+/=]+$/.test(photo.base64)) throw new Error("Imagem inválida.");
+          resolve(`data:${photo.mime};base64,${photo.base64}`);
+        } catch(e) { reject(e); } finally { clearTimeout(timer); }
+      });
+    });
+    photoPending.set(key,promise); pumpPhotos();
+    promise.finally(()=>photoPending.delete(key)).catch(()=>{});
+    return promise;
+  }
+  const photoTimers=new WeakMap();
+  function watchPhoto(img) {
+    clearTimeout(photoTimers.get(img));
+    if(img.complete && img.naturalWidth) return;
+    photoTimers.set(img,setTimeout(()=>{if(img.isConnected) advancePhoto(img);},10000));
+  }
+  function failPhoto(img) {
+    img.hidden=true;
+    img.parentElement?.querySelector(".photo-error")?.classList.remove("hidden");
+  }
+  async function advancePhoto(img) {
+    clearTimeout(photoTimers.get(img));
+    if(img.dataset.photoBusy || img.dataset.photoDone) return;
+    const steps=JSON.parse(img.dataset.photoSteps||"[]");
+    if(steps.length) {
+      img.dataset.photoSteps=JSON.stringify(steps.slice(1));
+      img.src=steps[0]; watchPhoto(img); return;
+    }
+    img.dataset.photoBusy="1";
+    try {
+      const token=state.session?.token;
+      if(!token) throw new Error("Sessão inválida.");
+      const src=await sessionPhoto(img.dataset.photoId,token);
+      if(!img.isConnected || state.session?.token!==token) return;
+      img.dataset.photoDone="1"; img.src=src;
+    } catch(e) { failPhoto(img); }
+    finally { delete img.dataset.photoBusy; }
+  }
+  document.addEventListener("error",event=>{
+    const img=event.target;
+    if(!img.matches?.("img[data-photo-id]")) return;
+    if(img.dataset.photoDone) failPhoto(img); else advancePhoto(img);
+  },true);
+  document.addEventListener("load",event=>{
+    if(event.target.matches?.("img[data-photo-id]")) clearTimeout(photoTimers.get(event.target));
+  },true);
+  const photoObserver=new MutationObserver(records=>records.forEach(record=>{
+    record.addedNodes.forEach(node=>{
+      if(node.nodeType!==1) return;
+      if(node.matches?.("img[data-photo-id]")) watchPhoto(node);
+      node.querySelectorAll?.("img[data-photo-id]").forEach(watchPhoto);
+    });
+    record.removedNodes.forEach(node=>{
+      if(node.nodeType!==1) return;
+      if(node.matches?.("img[data-photo-id]")) clearTimeout(photoTimers.get(node));
+      node.querySelectorAll?.("img[data-photo-id]").forEach(img=>clearTimeout(photoTimers.get(img)));
+    });
+  }));
+  photoObserver.observe(document.body,{childList:true,subtree:true});
+
+  async function api(action, payload={}, options={}) {
     if (!C.API_URL || C.API_URL.includes("COLE_AQUI")) {
       throw new Error("Configura primeiro o API_URL em config.js.");
     }
@@ -49,6 +146,7 @@
 
     const res = await fetch(C.API_URL, {
       method: "POST",
+      signal: options.signal,
       headers: {"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
       body
     });
@@ -1397,7 +1495,7 @@
         ${roleCanRound() ? `<button id="startRoundPark" class="btn btn-primary btn-block" style="margin-top:14px">Iniciar ronda neste parque</button>` : ""}
         <div class="section-title"><div><h3>Histórico de rondas</h3></div></div>
         <div class="list">
-          ${rounds.length ? rounds.map(r => `<div class="list-item"><div class="list-main"><strong>${escapeHtml(r.completedAtLabel)}</strong><span>${escapeHtml(r.userName)} · Água: ${escapeHtml(r.waterLabel)} · Comida: ${escapeHtml(r.feedLabel)}</span></div></div>`).join("") : `<div class="empty">Ainda sem rondas.</div>`}
+          ${rounds.length ? rounds.map(r => `<div class="list-item"><div class="list-main"><strong>${escapeHtml(r.completedAtLabel)}</strong><span>${escapeHtml(r.userName)} · Água: ${escapeHtml(r.waterLabel)} · Comida: ${escapeHtml(r.feedLabel)}</span>${photoMarkup(r.photoUrl)}</div></div>`).join("") : `<div class="empty">Ainda sem rondas.</div>`}
         </div>`);
       document.getElementById("startRoundPark")?.addEventListener("click", () => {
         closeModal(); renderRoundForm(p);
@@ -1542,6 +1640,7 @@
           <span class="${r.infrastructure === "problema" ? "round-status-bad":"round-status-ok"}">🔧 ${r.infrastructure === "problema" ? "Problema":"OK"}</span>
         </div>
         ${r.notes ? `<div class="round-history-notes">${escapeHtml(r.notes)}</div>` : ""}
+        ${photoMarkup(r.photoUrl || r.FotoURL)}
       </article>`;
   }
 
@@ -1880,7 +1979,7 @@
         <div class="card card-pad">
           <div class="list-main"><strong>Reportado por ${escapeHtml(i.reportedByName)}</strong><span>${escapeHtml(i.reportedAtLabel)}</span></div>
           ${i.description ? `<p>${escapeHtml(i.description)}</p>`:""}
-          ${i.photoUrl ? `<img src="${escapeHtml(i.photoUrl)}" class="photo-preview" alt="Fotografia da ocorrência">`:""}
+          ${photoMarkup(i.photoUrl)}
         </div>
         ${canVetEdit ? vetForm(i, data.veterinary, data.necropsy) : ""}
         ${canOpEdit ? operationalForm(i) : ""}
