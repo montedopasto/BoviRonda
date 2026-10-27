@@ -162,8 +162,38 @@
       }
       throw new Error(msg);
     }
+    if (action === "listParks" && Array.isArray(data.data)) return data.data.map(p => parkWithCalendarDays(p));
+    if (action === "getPark" && data.data?.park) return {...data.data, park:parkWithCalendarDays(data.data.park)};
     return data.data;
   }
+
+  // Compare civil dates in Lisbon, never elapsed blocks of 24 hours.
+  // UTC is used only to number those civil dates; DST days may have 23 or 25 hours.
+  const roundDayFormatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone:"Europe/Lisbon", year:"numeric", month:"2-digit", day:"2-digit"
+  });
+  function roundCalendarDay(value) {
+    if (value === null || value === undefined || value === "") return null;
+    const date = value instanceof Date ? value : new Date(value);
+    if (!Number.isFinite(date.getTime())) return null;
+    const parts = Object.fromEntries(roundDayFormatter.formatToParts(date).map(p => [p.type,p.value]));
+    return Date.UTC(Number(parts.year),Number(parts.month)-1,Number(parts.day)) / 86400000;
+  }
+  function parkWithCalendarDays(park, now=new Date()) {
+    const lastDay=roundCalendarDay(park.lastRoundAt), today=roundCalendarDay(now);
+    return {...park, daysSinceRound:lastDay===null || today===null ? null : today-lastDay};
+  }
+  let displayedCalendarDay=roundCalendarDay(new Date());
+  function refreshCalendarDay() {
+    const today=roundCalendarDay(new Date());
+    if (today===displayedCalendarDay || document.getElementById("modalRoot")) return;
+    displayedCalendarDay=today;
+    state.parks=(state.parks||[]).map(p=>parkWithCalendarDays(p));
+    if (state.profile && ["home","parks"].includes(state.page) && !document.getElementById("modalRoot")) renderPage();
+  }
+  document.addEventListener("visibilitychange",()=>{if(!document.hidden) refreshCalendarDay();});
+  window.addEventListener("focus",refreshCalendarDay);
+  setInterval(refreshCalendarDay,30000);
 
   function saveSession() {
     if (state.session) localStorage.setItem("bovironda_session", JSON.stringify(state.session));
@@ -177,6 +207,7 @@
 
   function daysBadge(days) {
     if (days === null || days === undefined) return '<span class="badge badge-grey">Sem ronda</span>';
+    if (days < 0) return '<span class="badge badge-amber">Data futura</span>';
     if (days >= (C.CRITICAL_DAYS || 5)) return `<span class="badge badge-red">${days} dias</span>`;
     if (days >= (C.WARNING_DAYS || 3)) return `<span class="badge badge-amber">${days} dias</span>`;
     return `<span class="badge badge-green">${days === 0 ? "Hoje" : days + " dia" + (days === 1 ? "" : "s")}</span>`;
@@ -373,6 +404,7 @@
   }
 
   function renderPage() {
+    state.parks=(state.parks||[]).map(p=>parkWithCalendarDays(p));
     const el = document.getElementById("page");
     if (!el) return;
     if (state.page === "home") renderHome(el);
@@ -1381,6 +1413,8 @@
       stateClass = "park-state-done";
       stateText = "Ronda feita hoje";
       stateIcon = "✓";
+    } else if (p.daysSinceRound < 0) {
+      stateText = "Ronda com data futura";
     } else if (p.daysSinceRound === null) {
       stateClass = "park-state-overdue";
       stateText = "Nunca teve ronda";
