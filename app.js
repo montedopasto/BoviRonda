@@ -890,7 +890,7 @@
           <table class="report-table health-report-table">
             <thead>
               <tr>
-                <th>Data</th><th>Exploração</th><th>Parque</th><th>NR PT</th>
+                <th>Data</th><th>Exploração</th><th>Parque</th><th>Identificação</th>
                 <th>Estado</th><th>Observação clínica</th><th>Diagnóstico</th>
                 <th>Tratamento</th><th>Medicamento</th><th>Dose</th>
               </tr>
@@ -902,7 +902,7 @@
                   <td>${escapeHtml(i.reportedAtLabel||"")}</td>
                   <td>${escapeHtml(i.farmName||"")}</td>
                   <td><strong>${escapeHtml(visibleParkName(i))}</strong></td>
-                  <td><strong>${escapeHtml(v.nrPt||"Por registar")}</strong></td>
+                  <td><strong>${escapeHtml(v.nrPt||(i.photoUrl ? "Fotografia do brinco" : "Sem fotografia (registo antigo)"))}</strong></td>
                   <td>${escapeHtml(i.statusLabel||i.status||"")}</td>
                   <td>${escapeHtml(v.clinicalObservation||"")}</td>
                   <td>${escapeHtml(v.diagnosis||"")}</td>
@@ -925,7 +925,7 @@
           <table class="report-table health-report-table">
             <thead>
               <tr>
-                <th>Data</th><th>Exploração</th><th>Parque</th><th>NR PT</th>
+                <th>Data</th><th>Exploração</th><th>Parque</th><th>Identificação</th>
                 <th>Estado</th><th>Resumo necrópsia</th><th>Causa provável</th><th>Conclusão</th>
               </tr>
             </thead>
@@ -936,7 +936,7 @@
                   <td>${escapeHtml(i.reportedAtLabel||"")}</td>
                   <td>${escapeHtml(i.farmName||"")}</td>
                   <td><strong>${escapeHtml(visibleParkName(i))}</strong></td>
-                  <td><strong>${escapeHtml(v.nrPt||n.nrPt||"Por registar")}</strong></td>
+                  <td><strong>${escapeHtml(v.nrPt||n.nrPt||(i.photoUrl ? "Fotografia do brinco" : "Sem fotografia (registo antigo)"))}</strong></td>
                   <td>${escapeHtml(i.statusLabel||i.status||"")}</td>
                   <td>${escapeHtml(n.summary||"")}</td>
                   <td>${escapeHtml(n.probableCause||"")}</td>
@@ -1103,7 +1103,7 @@
 
       if (reportType === "sick") {
         rows.push([
-          "Data","Exploração","Parque","NR PT","Estado",
+          "Data","Exploração","Parque","Identificação","Estado",
           "Observação clínica","Diagnóstico","Tratamento","Medicamento","Dose"
         ]);
 
@@ -1116,7 +1116,7 @@
               i.reportedAtLabel || "",
               i.farmName || "",
               visibleParkName(i),
-              v.nrPt || "",
+              v.nrPt || i.photoUrl || "",
               i.statusLabel || i.status || "",
               v.clinicalObservation || "",
               v.diagnosis || "",
@@ -1129,7 +1129,7 @@
 
       if (reportType === "mortality") {
         rows.push([
-          "Data","Exploração","Parque","NR PT","Estado",
+          "Data","Exploração","Parque","Identificação","Estado",
           "Resumo necrópsia","Causa provável","Conclusão"
         ]);
 
@@ -1143,7 +1143,7 @@
               i.reportedAtLabel || "",
               i.farmName || "",
               visibleParkName(i),
-              v.nrPt || n.nrPt || "",
+              v.nrPt || n.nrPt || i.photoUrl || "",
               i.statusLabel || i.status || "",
               n.summary || "",
               n.probableCause || "",
@@ -1851,7 +1851,7 @@
         </section>
         <section class="card card-pad">
           <div class="field"><label>Observações</label><textarea id="roundNotes" placeholder="Opcional"></textarea></div>
-          <div class="field" style="margin-top:12px"><label>Fotografia</label><input id="roundPhoto" type="file" accept="image/*" capture="environment"></div>
+          <div class="field" style="margin-top:12px"><label id="roundPhotoLabel">Fotografia</label><input id="roundPhoto" type="file" accept="image/*" capture="environment"></div>
           <img id="roundPhotoPreview" class="photo-preview hidden" alt="Pré-visualização">
         </section>
         <button class="btn btn-primary btn-block" type="submit">${parks.length > 1 ? `Guardar rondas em ${parks.length} parques` : "Guardar ronda"}</button>
@@ -1860,6 +1860,12 @@
     document.querySelectorAll('input[name="infra"]').forEach(r => r.addEventListener("change", () => {
       document.getElementById("infraExtra").classList.toggle("hidden", r.value !== "problema" || !r.checked);
     }));
+    function requireEarTagPhoto() {
+      const required=document.getElementById("animalSick").checked || document.getElementById("animalDead").checked;
+      document.getElementById("roundPhoto").required=required;
+      document.getElementById("roundPhotoLabel").textContent=required ? "Fotografia do brinco *" : "Fotografia";
+    }
+    ["animalSick","animalDead"].forEach(id=>document.getElementById(id).addEventListener("change",requireEarTagPhoto));
     document.getElementById("roundPhoto").addEventListener("change", previewPhoto);
     document.getElementById("roundForm").addEventListener("submit", e => submitRound(e, parks));
   }
@@ -1881,7 +1887,12 @@
   async function fileToBase64(file) {
     if (!file) return null;
     const max = 1600;
-    const bitmap = await createImageBitmap(file);
+    const bitmap = await new Promise((resolve,reject)=>{
+      const image=new Image(), url=URL.createObjectURL(file);
+      image.onload=()=>{URL.revokeObjectURL(url);resolve(image);};
+      image.onerror=()=>{URL.revokeObjectURL(url);reject(new Error("Fotografia inválida"));};
+      image.src=url;
+    });
     const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(bitmap.width * scale);
@@ -1919,6 +1930,7 @@
     try {
       const fd = new FormData(form);
       payload = {
+        requestId: Date.now().toString(36)+"-"+Math.random().toString(36).slice(2),
         water: fd.get("water"), feed: fd.get("feed"),
         animalSick: document.getElementById("animalSick").checked,
         animalDead: document.getElementById("animalDead").checked,
@@ -1926,6 +1938,8 @@
         infrastructureType: document.getElementById("infraType").value || "",
         notes: document.getElementById("roundNotes").value.trim()
       };
+      if((payload.animalSick||payload.animalDead) && !document.getElementById("roundPhoto").files[0])
+        throw new Error("É obrigatória uma fotografia do brinco");
       setBusy(true);
       status.textContent = "A preparar fotografia…";
       payload.photoDataUrl = await fileToBase64(document.getElementById("roundPhoto").files?.[0]);
@@ -2055,7 +2069,7 @@
       <div class="modal-head"><h2>Resolver ${incidents.length} ocorrência${incidents.length===1?'':'s'}</h2><button type="button" class="icon-btn modal-close" aria-label="Fechar">×</button></div>
       <p>As ocorrências selecionadas vão ficar como <strong>Resolvidas</strong>, com a data e o seu nome.</p>
       <ul class="incident-bulk-preview">${incidents.map(i=>`<li>${escapeHtml(label(i))}</li>`).join("")}</ul>
-      ${incidents.some(i=>i.category==="veterinaria") ? '<p>Nos casos veterinários, o NR PT e, em caso de morte, o resumo da necrópsia têm de estar preenchidos. Os dados clínicos serão mantidos.</p>' : ''}
+      ${incidents.some(i=>i.category==="veterinaria") ? '<p>Nos casos veterinários, em caso de morte, o resumo da necrópsia tem de estar preenchido. Os dados clínicos serão mantidos.</p>' : ''}
       <form id="bulkResolveForm" class="form-grid">
         <div class="field"><label for="bulkResolveNote">Nota de resolução para todas (opcional)</label><textarea id="bulkResolveNote" maxlength="2000" placeholder="Ex.: Bebedouros verificados e reparados."></textarea></div>
         <p id="bulkResolveProgress" role="status" aria-live="polite"></p>
@@ -2126,7 +2140,6 @@
       <form id="vetForm" class="form-grid" style="margin-top:16px">
         <section class="card card-pad">
           <h3 style="margin-top:0">Intervenção veterinária</h3>
-          <div class="field"><label>NR PT *</label><input id="nrPt" required value="${escapeHtml(v?.nrPt || "")}" placeholder="PT..."></div>
           ${!dead ? `
           <div class="field" style="margin-top:10px"><label>Observação clínica</label><textarea id="clinical">${escapeHtml(v?.clinicalObservation || "")}</textarea></div>
           <div class="field" style="margin-top:10px"><label>Diagnóstico / suspeita</label><textarea id="diagnosis">${escapeHtml(v?.diagnosis || "")}</textarea></div>
@@ -2171,7 +2184,6 @@
     const dead = incident.type === "animal_morto";
     const payload = {
       incidentId: incident.id,
-      nrPt: document.getElementById("nrPt").value.trim(),
       status: document.getElementById("vetStatus").value,
       clinicalObservation: document.getElementById("clinical")?.value.trim() || "",
       diagnosis: document.getElementById("diagnosis")?.value.trim() || "",
@@ -2211,6 +2223,7 @@
         <button class="filter-btn" data-admin-tab="parks">Parques</button>
         <button class="filter-btn" data-admin-tab="qr">QR Codes</button>
         <button class="filter-btn" data-admin-tab="records">Registos</button>
+        <button class="filter-btn" data-admin-tab="notifications">Configurações / Notificações</button>
       </div>
       <div id="adminBody" style="margin-top:14px"><div class="card empty">A carregar…</div></div>`;
     document.querySelectorAll("[data-admin-tab]").forEach(b => b.addEventListener("click", () => {
@@ -2223,7 +2236,21 @@
   async function loadAdminTab(tab) {
     const body = document.getElementById("adminBody");
     try {
-      if (tab === "users") {
+      if (tab === "notifications") {
+        const settings=await api("getNotificationSettings");
+        body.innerHTML=`<form id="notificationForm" class="card card-pad form-grid">
+          <h3>Notificações por email</h3><p>Separe os emails por vírgula ou ponto e vírgula. Uma lista vazia suspende o respetivo envio; as novas ocorrências ficam pendentes.</p>
+          <div class="field"><label>Destinatários operacionais</label><textarea id="mailOperational">${escapeHtml(settings.operational)}</textarea></div>
+          <div class="field"><label>Destinatários veterinários (animal doente / morto)</label><textarea id="mailVeterinary">${escapeHtml(settings.veterinary)}</textarea></div>
+          <p>As notificações começam após a primeira configuração. Os registos anteriores não são enviados.</p>
+          ${settings.uncertain.length ? `<p role="alert">Envios por confirmar (ver folha Notificacoes): ${settings.uncertain.map(escapeHtml).join(", ")}. Confirme o envio antes de qualquer repetição.</p>` : ""}
+          <button class="btn btn-primary" type="submit">Guardar notificações</button></form>`;
+        document.getElementById("notificationForm").addEventListener("submit",async event=>{
+          event.preventDefault();const button=event.currentTarget.querySelector("button");button.disabled=true;
+          try {await api("saveNotificationSettings",{operational:document.getElementById("mailOperational").value,veterinary:document.getElementById("mailVeterinary").value});toast("Notificações guardadas.");}
+          catch(error){toast(error.message);} finally {button.disabled=false;}
+        });
+      } else if (tab === "users") {
         const users = await api("listUsers");
         state.users = users;
         body.innerHTML = `
@@ -2865,3 +2892,4 @@
   }
   init();
 })();
+

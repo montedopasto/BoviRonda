@@ -1,5 +1,5 @@
-const CACHE = "bovironda-v1.9.9-calendario";
-const CORE = ["./","./index.html","./styles.css?v=198-20261016","./app.js?v=199-calendario-20261027","./config.js?v=198-api14-20261016","./manifest.json?v=198-20261016"];
+const CACHE = "bovironda-v1.9.10-notificacoes";
+const CORE = ["./","./index.html","./styles.css?v=198-20261016","./app.js?v=1910-notificacoes-20261029","./config.js?v=198-api14-20261016","./manifest.json?v=198-20261016"];
 self.addEventListener("install", e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting())));
 self.addEventListener("activate", e => {
   e.waitUntil(
@@ -24,3 +24,4 @@ self.addEventListener("fetch", event => {
       .catch(() => caches.match(event.request))
   );
 });
+

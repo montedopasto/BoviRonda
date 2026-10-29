@@ -5,7 +5,7 @@
  * 1) Crie uma Google Sheet.
  * 2) Extensions > Apps Script.
  * 3) Cole este Code.gs.
- * 4) Execute setupBoviRonda() uma vez.
+ * 4) ATUALIZAÇÃO EXISTENTE: nunca executar setupBoviRonda(); consultar ATUALIZAR_OCORRENCIAS.txt.
  * 5) Deploy > New deployment > Web app.
  * 6) Execute as: Me
  * 7) Who has access: Anyone
@@ -44,8 +44,11 @@ function doPost(e) {
 
     let data;
     switch (action) {
+      case "getNotificationSettings": data = getNotificationSettings_(session); break;
+      case "saveNotificationSettings": data = saveNotificationSettings_(session,payload); break;
       case "login": data = login_(payload); break;
       case "logout": data = logout_(session); break;
+      case "getPhoto": data = getPhoto_(session,payload); break;
       case "me": data = {profile: profileForClient_(session.user)}; break;
       case "dashboard": data = dashboard_(session); break;
       case "listParks": data = listParks_(session); break;
@@ -56,6 +59,7 @@ function doPost(e) {
       case "listIncidents": data = listIncidents_(session,payload); break;
       case "getIncident": data = getIncident_(session,payload); break;
       case "updateVeterinaryCase": data = updateVeterinaryCase_(session,payload); break;
+      case "resolveIncidentsBulk": data = resolveIncidentsBulk_(session,payload); break;
       case "updateOperationalIncident": data = updateOperationalIncident_(session,payload); break;
       case "listUsers": data = listUsers_(session); break;
       case "createUser": data = createUser_(session,payload); break;
@@ -66,6 +70,7 @@ function doPost(e) {
       case "deleteRoundAdmin": data = deleteRoundAdmin_(session,payload); break;
       case "updateIncidentAdmin": data = updateIncidentAdmin_(session,payload); break;
       case "deleteIncidentAdmin": data = deleteIncidentAdmin_(session,payload); break;
+      case "bulkCreateParks": data = bulkCreateParks_(session,payload); break;
       case "createPark": data = createPark_(session,payload); break;
       case "updatePark": data = updatePark_(session,payload); break;
       case "deletePark": data = deletePark_(session,payload); break;
@@ -233,7 +238,7 @@ function listRounds_(session) {
   const users=indexBy_(rows_(BR.SHEETS.USERS),"ID");
   return rows_(BR.SHEETS.ROUNDS)
     .sort((a,b)=>new Date(b.DataHoraFim||b.CriadoEm)-new Date(a.DataHoraFim||a.CriadoEm))
-    .slice(0,250)
+    .slice(0,5000)
     .map(r=>({
       id:r.ID,
       parkId:r.ParqueID,
@@ -249,7 +254,7 @@ function listRounds_(session) {
       feedLabel:statusText_(r.Comida||"ok"),
       infrastructure:r.Infraestrutura||"ok",
       infrastructureType:r.TipoInfraestrutura||"",
-      notes:r.Observacoes||""
+      photoUrl:roundPhotoUrl_(r),notes:r.Observacoes||""
     }));
 }
 
@@ -268,7 +273,7 @@ function getPark_(session,p) {
   const rounds=rows_(BR.SHEETS.ROUNDS).filter(r=>r.ParqueID===park.id).sort((a,b)=>new Date(b.DataHoraFim)-new Date(a.DataHoraFim)).slice(0,30).map(r=>({
     id:r.ID,userName:users[r.UtilizadorID]?.Nome||"",completedAt:r.DataHoraFim,
     completedAtLabel:dateTimeLabel_(r.DataHoraFim),water:r.Agua,waterLabel:statusText_(r.Agua),
-    feed:r.Comida,feedLabel:statusText_(r.Comida),notes:r.Observacoes||""
+    feed:r.Comida,feedLabel:statusText_(r.Comida),photoUrl:roundPhotoUrl_(r),notes:r.Observacoes||""
   }));
   const incidents=listIncidents_(session,{}).filter(i=>i.parkId===park.id);
   return {park,rounds,incidents};
@@ -285,13 +290,27 @@ function findParkByQr_(session,p) {
 ========================= */
 
 function createRound_(session,p) {
+  const lock=LockService.getScriptLock();
+  lock.waitLock(30000);
+  try { return createRoundLocked_(session,p); }
+  finally { lock.releaseLock(); }
+}
+
+function createRoundLocked_(session,p) {
   requireRole_(session,["admin","utilizador","veterinario"]);
   const park=rowById_(BR.SHEETS.PARKS,p.parkId);
   if(!park) throw new Error("Parque inválido.");
 
-  const roundId=id_(), start=now_(), end=now_();
-  let photoUrl="";
-  if(p.photoDataUrl) photoUrl=savePhoto_(p.photoDataUrl,`ronda_${park.Codigo}_${roundId}.jpg`).url;
+  if((bool_(p.animalSick)||bool_(p.animalDead)) && !p.photoDataUrl)
+    throw new Error("É obrigatória uma fotografia do brinco para animal doente ou morto.");
+  // The client reuses this key for a park when a response is lost.
+  const requestId=String(p.requestId||"");
+  const roundId=requestId ? "req_"+hashPin_(session.user.ID+":"+park.ID+":"+requestId) : id_();
+  const existing=rowById_(BR.SHEETS.ROUNDS,roundId);
+  if(existing) return {roundId,incidentsCreated:rows_(BR.SHEETS.INCIDENTS).filter(i=>i.RondaID===roundId).length,alreadyCreated:true};
+  const start=now_(), end=now_();
+  let photoUrl="", savedPhoto=null;
+  if(p.photoDataUrl) { savedPhoto=savePhoto_(p.photoDataUrl,`ronda_${park.Codigo}_${roundId}.jpg`); photoUrl=savedPhoto.url; }
 
   append_(sheet_(BR.SHEETS.ROUNDS),[
     roundId,park.ID,session.user.ID,start,end,
@@ -299,6 +318,12 @@ function createRound_(session,p) {
     p.infrastructureType||"",p.notes||"",photoUrl,now_()
   ]);
 
+  const photoSheet=SpreadsheetApp.getActive().getSheetByName(BR.SHEETS.PHOTOS);
+  if(savedPhoto && photoSheet) {
+    const entry={ID:id_(),OcorrenciaID:"",RondaID:roundId,DriveFileID:savedPhoto.id,URL:photoUrl,EnviadoPorID:session.user.ID,CriadoEm:now_()};
+    const headers=photoSheet.getRange(1,1,1,photoSheet.getLastColumn()).getValues()[0];
+    append_(photoSheet,headers.map(h=>entry[h]===undefined?"":entry[h]));
+  }
   let count=0;
   function incident(category,type,status,description){
     createIncidentRow_(roundId,park.ID,session.user.ID,category,type,status,description||p.notes||"",photoUrl);
@@ -313,6 +338,7 @@ function createRound_(session,p) {
   if(bool_(p.animalDead)) incident("veterinaria","animal_morto","por_observar","");
 
   audit_(session.user.ID,"Ronda",roundId,"CREATE",null,p);
+  try { processNotificationsLocked_(); } catch(error) { console.error(error); }
   return {roundId,incidentsCreated:count};
 }
 
@@ -337,7 +363,7 @@ function listIncidents_(session,p) {
   return list.sort((a,b)=>new Date(b.ReportadoEm)-new Date(a.ReportadoEm)).map(i=>({
     id:i.ID,roundId:i.RondaID,parkId:i.ParqueID,reportedById:i.ReportadoPorID,
     category:i.Categoria,type:i.Tipo,typeLabel:incidentTypeText_(i.Tipo),status:i.Estado,statusLabel:statusText_(i.Estado),
-    description:i.Descricao||"",photoUrl:i.FotoURL||"",reportedAt:i.ReportadoEm,
+    description:i.Descricao||"",photoUrl:incidentPhotoUrl_(i),reportedAt:i.ReportadoEm,
     reportedAtLabel:dateTimeLabel_(i.ReportadoEm),reportedByName:users[i.ReportadoPorID]?.Nome||"",
     parkCode:parks[i.ParqueID]?.code||"",farmId:parks[i.ParqueID]?.farmId||"",farmName:parks[i.ParqueID]?.farmName||""
   }));
@@ -353,12 +379,12 @@ function getIncident_(session,p) {
   return {
     incident,
     veterinary:veterinary ? {
-      id:veterinary.ID,nrPt:veterinary.NR_PT||"",veterinarianId:veterinary.VeterinarioID||"",
+      photoUrl:incident.photoUrl,id:veterinary.ID,nrPt:veterinary.NR_PT||"",veterinarianId:veterinary.VeterinarioID||"",
       clinicalObservation:veterinary.ObservacaoClinica||"",diagnosis:veterinary.Diagnostico||"",
       treatment:veterinary.Tratamento||"",medication:veterinary.Medicamento||"",dosage:veterinary.Dose||""
     } : null,
     necropsy:necropsy ? {
-      id:necropsy.ID,nrPt:necropsy.NR_PT||"",summary:necropsy.Resumo||"",
+      photoUrl:incident.photoUrl,id:necropsy.ID,nrPt:necropsy.NR_PT||"",summary:necropsy.Resumo||"",
       probableCause:necropsy.CausaProvavel||"",conclusion:necropsy.Conclusao||""
     } : null
   };
@@ -366,16 +392,16 @@ function getIncident_(session,p) {
 
 function updateVeterinaryCase_(session,p) {
   requireRole_(session,["admin","veterinario"]);
-  if(!String(p.nrPt||"").trim()) throw new Error("O NR PT é obrigatório.");
 
   const incidentRow=findRow_(BR.SHEETS.INCIDENTS,"ID",p.incidentId);
   if(!incidentRow) throw new Error("Ocorrência não encontrada.");
   const incident=incidentRow.object;
   if(incident.Categoria!=="veterinaria") throw new Error("Esta não é uma ocorrência veterinária.");
 
+  if(incident.Tipo==="animal_morto" && !String(p.necropsySummary||"").trim())
+    throw new Error("O resumo da necrópsia é obrigatório.");
   upsertVet_(session,p);
   if(incident.Tipo==="animal_morto") {
-    if(!String(p.necropsySummary||"").trim()) throw new Error("O resumo da necrópsia é obrigatório.");
     upsertNecropsy_(session,p);
   }
   updateCells_(BR.SHEETS.INCIDENTS,incidentRow.row,{
@@ -391,13 +417,13 @@ function updateVeterinaryCase_(session,p) {
 function upsertVet_(session,p) {
   const found=findRow_(BR.SHEETS.VET,"OcorrenciaID",p.incidentId);
   const values={
-    NR_PT:p.nrPt,VeterinarioID:session.user.ID,ObservacaoClinica:p.clinicalObservation||"",
+    VeterinarioID:session.user.ID,ObservacaoClinica:p.clinicalObservation||"",
     Diagnostico:p.diagnosis||"",Tratamento:p.treatment||"",Medicamento:p.medication||"",
     Dose:p.dosage||"",AtualizadoEm:now_()
   };
   if(found) updateCells_(BR.SHEETS.VET,found.row,values);
   else append_(sheet_(BR.SHEETS.VET),[
-    id_(),p.incidentId,p.nrPt,session.user.ID,p.clinicalObservation||"",p.diagnosis||"",
+    id_(),p.incidentId,"",session.user.ID,p.clinicalObservation||"",p.diagnosis||"",
     p.treatment||"",p.medication||"",p.dosage||"","",now_(),now_()
   ]);
 }
@@ -405,14 +431,66 @@ function upsertVet_(session,p) {
 function upsertNecropsy_(session,p) {
   const found=findRow_(BR.SHEETS.NECROPSIES,"OcorrenciaID",p.incidentId);
   const values={
-    NR_PT:p.nrPt,VeterinarioID:session.user.ID,DataNecropsia:now_(),Resumo:p.necropsySummary||"",
+    VeterinarioID:session.user.ID,DataNecropsia:now_(),Resumo:p.necropsySummary||"",
     CausaProvavel:p.probableCause||"",Conclusao:p.conclusion||"",AtualizadoEm:now_()
   };
   if(found) updateCells_(BR.SHEETS.NECROPSIES,found.row,values);
   else append_(sheet_(BR.SHEETS.NECROPSIES),[
-    id_(),p.incidentId,p.nrPt,session.user.ID,now_(),p.necropsySummary||"",
+    id_(),p.incidentId,"",session.user.ID,now_(),p.necropsySummary||"",
     p.probableCause||"",p.conclusion||"","",now_(),now_()
   ]);
+}
+
+// Close selected records without modifying clinical data or previous resolution notes.
+function resolveIncidentsBulk_(session,p) {
+  requireRole_(session,["admin","chefia","veterinario"]);
+  if(!Array.isArray(p.incidentIds) || !p.incidentIds.length || p.incidentIds.length>50 ||
+     p.incidentIds.some(id=>typeof id!=="string" || !id.trim()))
+    throw new Error("Selecione entre 1 e 50 ocorrências por pedido.");
+  const ids=[...new Set(p.incidentIds)], note=String(p.note||"").trim();
+  if(note.length>2000) throw new Error("A nota deve ter no máximo 2000 caracteres.");
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(20000)) throw new Error("Existe outra gravação em curso. Tente novamente.");
+  try {
+    const sh=sheet_(BR.SHEETS.INCIDENTS), data=sh.getDataRange().getValues(), headers=data[0].map(String);
+    ["ID","ParqueID","Categoria","Tipo","Estado","NotaResolucao","ResolvidoEm","ResolvidoPorID","AtualizadoEm"].forEach(h=>{
+      if(!headers.includes(h)) throw new Error("Falta a coluna "+h+" em Ocorrencias. Não execute setupBoviRonda.");
+    });
+    const records={};
+    data.slice(1).forEach((row,index)=>{
+      const object={};headers.forEach((h,col)=>object[h]=row[col]);
+      if(object.ID) records[String(object.ID)]={row:index+2,object};
+    });
+    const parks=new Set(listParks_(session).map(p=>String(p.id)));
+    // Load clinical rows only if they are needed for this batch.
+    const needsVet=ids.some(id=>records[id]?.object.Categoria==="veterinaria" && ["admin","veterinario"].includes(session.user.Perfil));
+    const vets=needsVet ? rows_(BR.SHEETS.VET) : [];
+    const necropsies=needsVet ? rows_(BR.SHEETS.NECROPSIES) : [];
+    const result={resolved:[],alreadyResolved:[],failed:[],warnings:[]};
+    ids.forEach(id=>{
+      try {
+        const found=records[id], incident=found?.object;
+        if(!incident || !parks.has(String(incident.ParqueID))) throw new Error("Ocorrência não encontrada ou sem acesso ao parque.");
+        const allowed=incident.Categoria==="operacional" ? ["admin","chefia"] : incident.Categoria==="veterinaria" ? ["admin","veterinario"] : [];
+        if(!allowed.includes(session.user.Perfil)) throw new Error("O seu perfil não pode resolver esta ocorrência.");
+        if(incident.Estado==="resolvida") { result.alreadyResolved.push(id); return; }
+        if(incident.Categoria==="veterinaria") {
+          if(incident.Tipo==="animal_morto" && !necropsies.some(n=>String(n.OcorrenciaID)===id && String(n.Resumo||"").trim()))
+            throw new Error("Complete primeiro o resumo da necrópsia.");
+        }
+        const now=now_(), previousNote=String(incident.NotaResolucao||"");
+        const combined=note && previousNote!==note && !previousNote.endsWith("\n"+note) ? [previousNote,note].filter(Boolean).join("\n") : previousNote;
+        updateCells_(BR.SHEETS.INCIDENTS,found.row,{
+          NotaResolucao:combined,ResolvidoEm:now,ResolvidoPorID:session.user.ID,AtualizadoEm:now,Estado:"resolvida"
+        });
+        result.resolved.push(id);
+        try {
+          audit_(session.user.ID,"Ocorrencia",id,"BULK_RESOLVE",incident,{Estado:"resolvida",NotaResolucao:combined,ResolvidoEm:now,ResolvidoPorID:session.user.ID});
+        } catch(e) { result.warnings.push({id,message:"Resolvida; não foi possível registar a auditoria: "+e.message}); }
+      } catch(e) { result.failed.push({id,message:e.message||String(e)}); }
+    });
+    return result;
+  } finally { lock.releaseLock(); }
 }
 
 function updateOperationalIncident_(session,p) {
@@ -500,6 +578,80 @@ function updateUser_(session,p) {
   return {success:true};
 }
 
+
+function bulkCreateParks_(session,p) {
+  requireRole_(session,["admin"]);
+
+  const items = Array.isArray(p.items) ? p.items : [];
+  if(!items.length) throw new Error("Não foram enviados parques para importar.");
+  if(items.length > 500) throw new Error("Máximo de 500 parques por importação.");
+
+  const farms = rows_(BR.SHEETS.FARMS).filter(f=>bool_(f.Ativo));
+  const farmByName = {};
+  farms.forEach(f=>{
+    farmByName[normalize_(f.Nome)] = f;
+    farmByName[normalize_(f.Codigo)] = f;
+  });
+
+  let created = 0;
+  let skipped = 0;
+  const errors = [];
+  const parksSh = sheet_(BR.SHEETS.PARKS);
+  const existing = rows_(BR.SHEETS.PARKS);
+  const counters = {};
+
+  farms.forEach(f=>{
+    const prefix = String(f.Codigo||"").trim().toUpperCase();
+    const nums = existing
+      .map(x=>String(x.Codigo||"").trim().toUpperCase())
+      .filter(c=>c.indexOf(prefix+"-")===0)
+      .map(c=>parseInt(c.split("-")[1],10))
+      .filter(n=>!isNaN(n));
+    counters[prefix] = nums.length ? Math.max.apply(null,nums) : 0;
+  });
+
+  items.forEach((item,index)=>{
+    const lineLabel = `Linha ${index+1}`;
+    try {
+      const farmName = String(item.farmName||"").trim();
+      const name = String(item.name||"").trim();
+
+      if(!farmName) {
+        skipped++;
+        errors.push({line:lineLabel,error:"Exploração em falta"});
+        return;
+      }
+
+      const farm = farmByName[normalize_(farmName)];
+      if(!farm) {
+        skipped++;
+        errors.push({line:lineLabel,error:`Exploração inválida: ${farmName}`});
+        return;
+      }
+
+      const prefix = String(farm.Codigo||"").trim().toUpperCase();
+      counters[prefix] = (counters[prefix] || 0) + 1;
+      const code = prefix + "-" + ("000" + counters[prefix]).slice(-3);
+
+      const id = id_();
+      const token = Utilities.getUuid();
+      const now = now_();
+
+      append_(parksSh,[id,code,name,farm.ID,token,true,now,now]);
+
+      audit_(session.user.ID,"Parque",id,"BULK_CREATE",null,{
+        code,name,farmName:farm.Nome,qrToken:token
+      });
+
+      created++;
+    } catch(err) {
+      skipped++;
+      errors.push({line:lineLabel,error:err.message||String(err)});
+    }
+  });
+
+  return {created,skipped,errors};
+}
 
 function createPark_(session,p) {
   requireRole_(session,["admin"]);
@@ -598,7 +750,7 @@ function listAdminRecords_(session) {
       feedLabel:statusText_(r.Comida||"ok"),
       infrastructure:r.Infraestrutura||"ok",
       infrastructureType:r.TipoInfraestrutura||"",
-      notes:r.Observacoes||""
+      photoUrl:roundPhotoUrl_(r),notes:r.Observacoes||""
     }));
 
   const incidents=incidentRows
@@ -615,7 +767,7 @@ function listAdminRecords_(session) {
       statusLabel:statusText_(i.Estado),
       description:i.Descricao||"",
       resolutionNote:i.NotaResolucao||"",
-      photoUrl:i.FotoURL||"",
+      photoUrl:incidentPhotoUrl_(i),
       reportedAt:i.ReportadoEm||i.AtualizadoEm,
       reportedAtLabel:dateTimeLabel_(i.ReportadoEm||i.AtualizadoEm),
       reportedByName:users[i.ReportadoPorID]?.Nome||"(utilizador removido)",
@@ -728,91 +880,148 @@ function deleteRowsByValue_(sheetName,key,value) {
    DRIVE
 ========================= */
 
+// Only raster formats that browsers can display; SVG is deliberately excluded.
+const PHOTO_MIMES_ = ["image/jpeg","image/png","image/webp","image/gif"];
+function photoId_(value) {
+  const text=String(value||"").trim();
+  if (/^[A-Za-z0-9_-]{10,}$/.test(text)) return text;
+  if (!/^https:\/\/(?:drive\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com)\//i.test(text)) return "";
+  const m=text.match(/\/d\/([A-Za-z0-9_-]+)/) || text.match(/[?&]id=([A-Za-z0-9_-]+)/);
+  return m ? m[1] : "";
+}
+function photoUrl_(id,key) {
+  return "https://drive.google.com/thumbnail?id="+encodeURIComponent(id)+"&sz=w1600"+(key?"&resourcekey="+encodeURIComponent(key):"");
+}
+function photoFile_(id,key) {
+  return key ? DriveApp.getFileByIdAndResourceKey(id,key) : DriveApp.getFileById(id);
+}
+function photoKey_(value) {
+  const m=String(value||"").match(/[?&]resourcekey=([^&#]+)/i);
+  return m ? decodeURIComponent(m[1]) : "";
+}
+function sharePhoto_(file) {
+  // Workspace may prohibit public links. Authenticated getPhoto remains available.
+  try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW); return "partilha por ligação ativa"; }
+  catch(e) { return "partilha pública bloqueada: "+e.message+"; usar sessão da app"; }
+}
 function savePhoto_(dataUrl,name) {
-  const m=String(dataUrl).match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-  if(!m) throw new Error("Fotografia inválida.");
-  const folder=createPhotoFolder_();
-  const blob=Utilities.newBlob(Utilities.base64Decode(m[2]),m[1],name);
-  const file=folder.createFile(blob);
-  // Acesso por link para a imagem poder ser vista pela app.
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);
-  return {id:file.getId(),url:`https://lh3.googleusercontent.com/d/${file.getId()}`};
+  const m=String(dataUrl).match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
+  if(!m || !PHOTO_MIMES_.includes(m[1])) throw new Error("Fotografia inválida. Use JPEG, PNG, WebP ou GIF.");
+  const bytes=Utilities.base64Decode(m[2]);
+  if(!bytes.length || bytes.length>12*1024*1024) throw new Error("Fotografia vazia ou superior a 12 MB.");
+  const file=createPhotoFolder_().createFile(Utilities.newBlob(bytes,m[1],name));
+  const sharing=sharePhoto_(file);
+  return {id:file.getId(),url:photoUrl_(file.getId(),file.getResourceKey()),sharing};
+}
+let photoIndexCache_;
+function photoIndex_() {
+  if(photoIndexCache_) return photoIndexCache_;
+  const index={rounds:{},incidents:{}};
+  const sh=SpreadsheetApp.getActive().getSheetByName(BR.SHEETS.PHOTOS);
+  if(sh) rows_(BR.SHEETS.PHOTOS).forEach(p=>{
+    const url=photoId_(p.URL) ? p.URL : (photoId_(p.DriveFileID)?photoUrl_(p.DriveFileID):"");
+    if(url && p.RondaID && !index.rounds[p.RondaID]) index.rounds[p.RondaID]=url;
+    if(url && p.OcorrenciaID && !index.incidents[p.OcorrenciaID]) index.incidents[p.OcorrenciaID]=url;
+  });
+  rows_(BR.SHEETS.ROUNDS).forEach(r=>{if(r.FotoURL) index.rounds[r.ID]=r.FotoURL;});
+  photoIndexCache_=index;
+  return index;
+}
+function roundPhotoUrl_(r) { return r.FotoURL||photoIndex_().rounds[r.ID]||""; }
+function incidentPhotoUrl_(r) { return r.FotoURL||photoIndex_().incidents[r.ID]||photoIndex_().rounds[r.RondaID]||""; }
+function getPhoto_(session,p) {
+  const id=photoId_(p.fileId);
+  if(!id) throw new Error("Identificador de fotografia inválido.");
+  // Authorize against records visible to this session, never arbitrary owner Drive IDs.
+  const parks=new Set(listParks_(session).map(x=>String(x.id)));
+  const rounds=rows_(BR.SHEETS.ROUNDS).filter(r=>parks.has(String(r.ParqueID)));
+  const incidents=rows_(BR.SHEETS.INCIDENTS).filter(r=>parks.has(String(r.ParqueID)));
+  let ref=rounds.concat(incidents).find(r=>photoId_(r.FotoURL)===id);
+  let url=ref ? ref.FotoURL : "";
+  const photosSh=SpreadsheetApp.getActive().getSheetByName(BR.SHEETS.PHOTOS);
+  if(!ref && photosSh) {
+    const rids=new Set(rounds.map(r=>String(r.ID))), iids=new Set(incidents.map(r=>String(r.ID)));
+    ref=rows_(BR.SHEETS.PHOTOS).find(r=>(photoId_(r.URL)===id||String(r.DriveFileID)===id) && (rids.has(String(r.RondaID))||iids.has(String(r.OcorrenciaID))));
+    if(ref) url=ref.URL;
+  }
+  if(!ref) throw new Error("Sem acesso à fotografia deste registo.");
+  const file=photoFile_(id,photoKey_(url));
+  const mime=file.getMimeType();
+  if(!PHOTO_MIMES_.includes(mime)) throw new Error("Formato de fotografia não suportado.");
+  if(file.getSize()>12*1024*1024) throw new Error("Fotografia superior a 12 MB. Abra no Drive.");
+  return {mime,base64:Utilities.base64Encode(file.getBlob().getBytes())};
 }
 
-
-/**
- * Executar UMA VEZ após esta atualização para reparar fotografias já existentes.
- */
-function repairPhotoPermissions() {
-  const photoRows = rows_(BR.SHEETS.PHOTOS);
-  const urlByOld = {};
-  let fixedFiles = 0;
-
-  photoRows.forEach(p => {
-    const fileId = String(p.DriveFileID || "").trim();
-    if (!fileId) return;
-
-    try {
-      const file = DriveApp.getFileById(fileId);
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      const directUrl = `https://lh3.googleusercontent.com/d/${fileId}`;
-      if (p.URL) urlByOld[String(p.URL)] = directUrl;
-      fixedFiles++;
-    } catch (err) {
-      console.warn("Não foi possível reparar fotografia", fileId, err);
+// Execute ONLY this public entry point once from the Apps Script editor.
+// Scheduled batches continue automatically; the cursor survives timeouts/retries.
+function repararFotosBoviRonda() {
+  const lock=LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    const props=PropertiesService.getScriptProperties();
+    if(!props.getProperty("BR_PHOTO_REPAIR")) {
+      const ss=SpreadsheetApp.getActive();
+      const stamp=Utilities.formatDate(new Date(),Session.getScriptTimeZone(),"yyyyMMdd_HHmmss");
+      ["Rondas","Ocorrencias","Fotos"].forEach(n=>{
+        const sh=ss.getSheetByName(n);
+        if(sh) sh.copyTo(ss).setName("BackupFoto_"+stamp+"_"+n);
+      });
+      const log=ss.insertSheet("ReparacaoFotos_"+stamp);
+      log.appendRow(["Data","Folha","Linha","Coluna","Antes","Depois","Estado"]);
+      props.setProperty("BR_PHOTO_REPAIR",JSON.stringify({sheet:0,row:2,log:log.getName(),done:false}));
     }
-  });
-
-  function repairSheetUrls_(sheetName, columnName) {
-    const sh = sheet_(sheetName);
-    const data = sh.getDataRange().getValues();
-    if (data.length < 2) return 0;
-
-    const headers = data[0].map(String);
-    const idx = headers.indexOf(columnName);
-    if (idx < 0) return 0;
-
-    let changed = 0;
-    for (let r = 1; r < data.length; r++) {
-      const oldUrl = String(data[r][idx] || "").trim();
-      if (!oldUrl) continue;
-
-      let newUrl = urlByOld[oldUrl] || "";
-      if (!newUrl) {
-        const m = oldUrl.match(/(?:id=|\/d\/)([-\w]{20,})/);
-        if (m) newUrl = `https://lh3.googleusercontent.com/d/${m[1]}`;
+    const job=JSON.parse(props.getProperty("BR_PHOTO_REPAIR"));
+    if(job.done) { console.log("Reparação já concluída. Consulte "+job.log); return; }
+    if(!ScriptApp.getProjectTriggers().some(t=>t.getHandlerFunction()==="continuarReparacaoFotosBoviRonda"))
+      ScriptApp.newTrigger("continuarReparacaoFotosBoviRonda").timeBased().everyMinutes(5).create();
+  } finally { lock.releaseLock(); }
+  continuarReparacaoFotosBoviRonda();
+}
+function continuarReparacaoFotosBoviRonda() {
+  const lock=LockService.getScriptLock(); if(!lock.tryLock(1000)) return;
+  try {
+    const props=PropertiesService.getScriptProperties(), raw=props.getProperty("BR_PHOTO_REPAIR");
+    if(!raw) return;
+    const job=JSON.parse(raw), ss=SpreadsheetApp.getActive(), started=Date.now(), memo={};
+    const log=ss.getSheetByName(job.log);
+    const names=["Rondas","Ocorrencias","Fotos"];
+    while(!job.done && Date.now()-started<200000) {
+      const name=names[job.sheet], sh=ss.getSheetByName(name);
+      if(!sh || job.row>sh.getLastRow()) {
+        job.sheet++; job.row=2; job.done=job.sheet>=names.length;
+        props.setProperty("BR_PHOTO_REPAIR",JSON.stringify(job)); continue;
       }
-
-      if (newUrl && newUrl !== oldUrl) {
-        sh.getRange(r + 1, idx + 1).setValue(newUrl);
-        changed++;
-      }
+      const headers=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
+      const row=sh.getRange(job.row,1,1,headers.length).getValues()[0];
+      const fid=headers.indexOf("DriveFileID");
+      headers.forEach((h,col)=>{
+        if(!(h==="FotoURL" || (name==="Fotos" && h==="URL"))) return;
+        const cell=sh.getRange(job.row,col+1), before=row[col];
+        const rich=cell.getRichTextValue();
+        const record={}; headers.forEach((key,i)=>record[key]=row[i]);
+        const source=(rich&&rich.getLinkUrl())||before||(name==="Rondas"?roundPhotoUrl_(record):name==="Ocorrencias"?incidentPhotoUrl_(record):"");
+        const id=photoId_(source)||(fid>=0?photoId_(row[fid]):"");
+        if(!id) { if(before) log.appendRow([new Date(),name,job.row,h,String(before),"","Não reconhecido; preservado"]); return; }
+        if(cell.getFormula()) { log.appendRow([new Date(),name,job.row,h,String(before),"","Fórmula preservada; rever manualmente"]); return; }
+        try {
+          if(!memo[id]) {
+            const file=photoFile_(id,photoKey_(source));
+            if(!PHOTO_MIMES_.includes(file.getMimeType())) throw new Error("Formato não suportado");
+            memo[id]={url:photoUrl_(id,file.getResourceKey()),status:sharePhoto_(file)};
+          }
+          const result=memo[id];
+          if(String(before)!==result.url) cell.setValue(result.url);
+          log.appendRow([new Date(),name,job.row,h,String(before),result.url,result.status]);
+        } catch(e) { log.appendRow([new Date(),name,job.row,h,String(before),"","Erro; preservado: "+e.message]); }
+      });
+      job.row++;
+      props.setProperty("BR_PHOTO_REPAIR",JSON.stringify(job));
     }
-    return changed;
-  }
-
-  const roundsChanged = repairSheetUrls_(BR.SHEETS.ROUNDS, "FotoURL");
-  const incidentsChanged = repairSheetUrls_(BR.SHEETS.INCIDENTS, "FotoURL");
-
-  const photosSh = sheet_(BR.SHEETS.PHOTOS);
-  const photosData = photosSh.getDataRange().getValues();
-  if (photosData.length >= 2) {
-    const headers = photosData[0].map(String);
-    const idIdx = headers.indexOf("DriveFileID");
-    const urlIdx = headers.indexOf("URL");
-
-    if (idIdx >= 0 && urlIdx >= 0) {
-      for (let r = 1; r < photosData.length; r++) {
-        const fileId = String(photosData[r][idIdx] || "").trim();
-        if (fileId) {
-          photosSh.getRange(r + 1, urlIdx + 1)
-            .setValue(`https://lh3.googleusercontent.com/d/${fileId}`);
-        }
-      }
+    if(job.done) {
+      ScriptApp.getProjectTriggers().filter(t=>t.getHandlerFunction()==="continuarReparacaoFotosBoviRonda").forEach(t=>ScriptApp.deleteTrigger(t));
+      log.appendRow([new Date(),"",0,"","","","CONCLUÍDO — verificar eventuais erros acima"]);
     }
-  }
-
-  return {success:true,fixedFiles,roundsChanged,incidentsChanged};
+    console.log(JSON.stringify(job));
+  } finally { lock.releaseLock(); }
 }
 
 /* =========================
@@ -894,4 +1103,84 @@ function updateCells_(sheetName,rowNum,values){
 }
 function audit_(userId,entity,entityId,action,before,after){
   append_(sheet_(BR.SHEETS.AUDIT),[id_(),userId||"",entity,entityId||"",action,JSON.stringify(before||{}),JSON.stringify(after||{}),now_()]);
+}
+
+
+
+
+
+
+
+
+
+/* Notification settings are script properties: no setup or existing-sheet reset. */
+function notificationRecipients_(value) {
+  const emails=String(value||"").split(/[,;]/).map(s=>s.trim().toLowerCase()).filter(Boolean);
+  emails.forEach(email=>{if(!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(email)) throw new Error("Email inválido: "+email);});
+  return [...new Set(emails)];
+}
+function getNotificationSettings_(session) {
+  requireRole_(session,["admin"]);
+  const props=PropertiesService.getScriptProperties();
+  const result={operational:props.getProperty("BR_MAIL_OPERATIONAL")||"",veterinary:props.getProperty("BR_MAIL_VETERINARY")||""};
+  const ss=SpreadsheetApp.getActive();
+  const sh=ss.getSheetByName("Notificacoes");
+  result.uncertain=sh ? rows_("Notificacoes").filter(r=>r.Estado==="a_enviar"||r.Estado==="incerto").map(r=>r.ID) : [];
+  return result;
+}
+function saveNotificationSettings_(session,p) {
+  requireRole_(session,["admin"]);
+  const operational=notificationRecipients_(p.operational).join(",");
+  const veterinary=notificationRecipients_(p.veterinary).join(",");
+  // Install the retry worker before reporting success (requires owner authorization).
+  if(!ScriptApp.getProjectTriggers().some(t=>t.getHandlerFunction()==="processBoviRondaNotifications"))
+    ScriptApp.newTrigger("processBoviRondaNotifications").timeBased().everyMinutes(5).create();
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try {
+    const props=PropertiesService.getScriptProperties();
+    // Start at configuration time; never email historic incidents unexpectedly.
+    if(!props.getProperty("BR_MAIL_START")) props.setProperty("BR_MAIL_START",new Date().toISOString());
+    props.setProperties({BR_MAIL_OPERATIONAL:operational,BR_MAIL_VETERINARY:veterinary});
+    return {success:true};
+  } finally {lock.releaseLock();}
+}
+function processBoviRondaNotifications() {
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(1000)) return;
+  try {processNotificationsLocked_();} finally {lock.releaseLock();}
+}
+function processNotificationsLocked_() {
+  const props=PropertiesService.getScriptProperties(), start=props.getProperty("BR_MAIL_START");
+  if(!start) return;
+  const ss=SpreadsheetApp.getActive();
+  let sh=ss.getSheetByName("Notificacoes");
+  if(!sh) {sh=ss.insertSheet("Notificacoes");sh.appendRow(["ID","Estado","Destinatarios","AtualizadoEm","Erro"]);}
+  const delivered=indexBy_(rows_("Notificacoes"),"ID");
+  const parks=indexBy_(rows_(BR.SHEETS.PARKS),"ID"),farms=indexBy_(rows_(BR.SHEETS.FARMS),"ID"),users=indexBy_(rows_(BR.SHEETS.USERS),"ID");
+  const pending=rows_(BR.SHEETS.INCIDENTS).filter(i=>new Date(i.ReportadoEm)>=new Date(start) && !delivered[i.ID]);
+  let processed=0;
+  for(const incident of pending) {
+    if(processed>=20) break;
+    const vet=incident.Tipo==="animal_doente"||incident.Tipo==="animal_morto";
+    if(!vet && incident.Categoria!=="operacional") continue;
+    const recipients=notificationRecipients_(props.getProperty(vet?"BR_MAIL_VETERINARY":"BR_MAIL_OPERATIONAL"));
+    if(!recipients.length || MailApp.getRemainingDailyQuota()<recipients.length) continue;
+    const park=parks[incident.ParqueID]||{},farm=farms[park.ExploracaoID]||{},user=users[incident.ReportadoPorID]||{};
+    const type=incidentTypeText_(incident.Tipo);
+    const body=["Tipo: "+type,"Exploração: "+(farm.Nome||""),"Parque: "+(park.Nome||park.Codigo||""),
+      "Data/hora: "+dateTimeLabel_(incident.ReportadoEm),"Registado por: "+(user.Nome||""),
+      "Descrição: "+(incident.Descricao||""),"Ocorrência: "+incident.ID];
+    if(vet && incident.FotoURL) body.push("Fotografia do brinco: "+incident.FotoURL);
+    // Claim durably before send. MailApp has no idempotency key: never retry an ambiguous send.
+    sh.appendRow([incident.ID,"a_enviar",recipients.join(","),now_(),""]);
+    const row=sh.getLastRow();SpreadsheetApp.flush();
+    try {
+      MailApp.sendEmail({to:recipients.join(","),subject:"BoviRonda · "+type+" · "+(farm.Nome||"")+" · "+(park.Nome||park.Codigo||""),body:body.join("\n"),name:"BoviRonda"});
+      sh.getRange(row,2).setValue("enviado");
+    } catch(error) {
+      sh.getRange(row,2).setValue("incerto");
+      sh.getRange(row,5).setValue(String(error.message||error));
+    }
+    SpreadsheetApp.flush();processed++;
+  }
 }
