@@ -44,6 +44,8 @@ function doPost(e) {
 
     let data;
     switch (action) {
+      case "getNotificationSettings": data = getNotificationSettings_(session); break;
+      case "saveNotificationSettings": data = saveNotificationSettings_(session,payload); break;
       case "login": data = login_(payload); break;
       case "logout": data = logout_(session); break;
       case "me": data = {profile: profileForClient_(session.user)}; break;
@@ -285,11 +287,25 @@ function findParkByQr_(session,p) {
 ========================= */
 
 function createRound_(session,p) {
+  const lock=LockService.getScriptLock();
+  lock.waitLock(30000);
+  try { return createRoundLocked_(session,p); }
+  finally { lock.releaseLock(); }
+}
+
+function createRoundLocked_(session,p) {
   requireRole_(session,["admin","utilizador","veterinario"]);
   const park=rowById_(BR.SHEETS.PARKS,p.parkId);
   if(!park) throw new Error("Parque inválido.");
 
-  const roundId=id_(), start=now_(), end=now_();
+  if((bool_(p.animalSick)||bool_(p.animalDead)) && !p.photoDataUrl)
+    throw new Error("É obrigatória uma fotografia do brinco para animal doente ou morto.");
+  // The client reuses this key for a park when a response is lost.
+  const requestId=String(p.requestId||"");
+  const roundId=requestId ? "req_"+hashPin_(session.user.ID+":"+park.ID+":"+requestId) : id_();
+  const existing=rowById_(BR.SHEETS.ROUNDS,roundId);
+  if(existing) return {roundId,incidentsCreated:rows_(BR.SHEETS.INCIDENTS).filter(i=>i.RondaID===roundId).length,alreadyCreated:true};
+  const start=now_(), end=now_();
   let photoUrl="";
   if(p.photoDataUrl) photoUrl=savePhoto_(p.photoDataUrl,`ronda_${park.Codigo}_${roundId}.jpg`).url;
 
@@ -313,6 +329,8 @@ function createRound_(session,p) {
   if(bool_(p.animalDead)) incident("veterinaria","animal_morto","por_observar","");
 
   audit_(session.user.ID,"Ronda",roundId,"CREATE",null,p);
+  // Mail failures must not turn a saved round into a failed submission.
+  try { processNotificationsLocked_(); } catch(error) { console.error(error); }
   return {roundId,incidentsCreated:count};
 }
 
@@ -353,12 +371,12 @@ function getIncident_(session,p) {
   return {
     incident,
     veterinary:veterinary ? {
-      id:veterinary.ID,nrPt:veterinary.NR_PT||"",veterinarianId:veterinary.VeterinarioID||"",
+      photoUrl:incident.photoUrl,id:veterinary.ID,nrPt:veterinary.NR_PT||"",veterinarianId:veterinary.VeterinarioID||"",
       clinicalObservation:veterinary.ObservacaoClinica||"",diagnosis:veterinary.Diagnostico||"",
       treatment:veterinary.Tratamento||"",medication:veterinary.Medicamento||"",dosage:veterinary.Dose||""
     } : null,
     necropsy:necropsy ? {
-      id:necropsy.ID,nrPt:necropsy.NR_PT||"",summary:necropsy.Resumo||"",
+      photoUrl:incident.photoUrl,id:necropsy.ID,nrPt:necropsy.NR_PT||"",summary:necropsy.Resumo||"",
       probableCause:necropsy.CausaProvavel||"",conclusion:necropsy.Conclusao||""
     } : null
   };
@@ -366,16 +384,16 @@ function getIncident_(session,p) {
 
 function updateVeterinaryCase_(session,p) {
   requireRole_(session,["admin","veterinario"]);
-  if(!String(p.nrPt||"").trim()) throw new Error("O NR PT é obrigatório.");
 
   const incidentRow=findRow_(BR.SHEETS.INCIDENTS,"ID",p.incidentId);
   if(!incidentRow) throw new Error("Ocorrência não encontrada.");
   const incident=incidentRow.object;
   if(incident.Categoria!=="veterinaria") throw new Error("Esta não é uma ocorrência veterinária.");
 
+  if(incident.Tipo==="animal_morto" && !String(p.necropsySummary||"").trim())
+    throw new Error("O resumo da necrópsia é obrigatório.");
   upsertVet_(session,p);
   if(incident.Tipo==="animal_morto") {
-    if(!String(p.necropsySummary||"").trim()) throw new Error("O resumo da necrópsia é obrigatório.");
     upsertNecropsy_(session,p);
   }
   updateCells_(BR.SHEETS.INCIDENTS,incidentRow.row,{
@@ -391,13 +409,13 @@ function updateVeterinaryCase_(session,p) {
 function upsertVet_(session,p) {
   const found=findRow_(BR.SHEETS.VET,"OcorrenciaID",p.incidentId);
   const values={
-    NR_PT:p.nrPt,VeterinarioID:session.user.ID,ObservacaoClinica:p.clinicalObservation||"",
+    VeterinarioID:session.user.ID,ObservacaoClinica:p.clinicalObservation||"",
     Diagnostico:p.diagnosis||"",Tratamento:p.treatment||"",Medicamento:p.medication||"",
     Dose:p.dosage||"",AtualizadoEm:now_()
   };
   if(found) updateCells_(BR.SHEETS.VET,found.row,values);
   else append_(sheet_(BR.SHEETS.VET),[
-    id_(),p.incidentId,p.nrPt,session.user.ID,p.clinicalObservation||"",p.diagnosis||"",
+    id_(),p.incidentId,"",session.user.ID,p.clinicalObservation||"",p.diagnosis||"",
     p.treatment||"",p.medication||"",p.dosage||"","",now_(),now_()
   ]);
 }
@@ -405,12 +423,12 @@ function upsertVet_(session,p) {
 function upsertNecropsy_(session,p) {
   const found=findRow_(BR.SHEETS.NECROPSIES,"OcorrenciaID",p.incidentId);
   const values={
-    NR_PT:p.nrPt,VeterinarioID:session.user.ID,DataNecropsia:now_(),Resumo:p.necropsySummary||"",
+    VeterinarioID:session.user.ID,DataNecropsia:now_(),Resumo:p.necropsySummary||"",
     CausaProvavel:p.probableCause||"",Conclusao:p.conclusion||"",AtualizadoEm:now_()
   };
   if(found) updateCells_(BR.SHEETS.NECROPSIES,found.row,values);
   else append_(sheet_(BR.SHEETS.NECROPSIES),[
-    id_(),p.incidentId,p.nrPt,session.user.ID,now_(),p.necropsySummary||"",
+    id_(),p.incidentId,"",session.user.ID,now_(),p.necropsySummary||"",
     p.probableCause||"",p.conclusion||"","",now_(),now_()
   ]);
 }
@@ -894,4 +912,78 @@ function updateCells_(sheetName,rowNum,values){
 }
 function audit_(userId,entity,entityId,action,before,after){
   append_(sheet_(BR.SHEETS.AUDIT),[id_(),userId||"",entity,entityId||"",action,JSON.stringify(before||{}),JSON.stringify(after||{}),now_()]);
+}
+
+
+
+/* Notification settings are script properties: no setup or existing-sheet reset. */
+function notificationRecipients_(value) {
+  const emails=String(value||"").split(/[,;]/).map(s=>s.trim().toLowerCase()).filter(Boolean);
+  emails.forEach(email=>{if(!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(email)) throw new Error("Email inválido: "+email);});
+  return [...new Set(emails)];
+}
+function getNotificationSettings_(session) {
+  requireRole_(session,["admin"]);
+  const props=PropertiesService.getScriptProperties();
+  const result={operational:props.getProperty("BR_MAIL_OPERATIONAL")||"",veterinary:props.getProperty("BR_MAIL_VETERINARY")||""};
+  const ss=SpreadsheetApp.getActive();
+  const sh=ss.getSheetByName("Notificacoes");
+  result.uncertain=sh ? rows_("Notificacoes").filter(r=>r.Estado==="a_enviar"||r.Estado==="incerto").map(r=>r.ID) : [];
+  return result;
+}
+function saveNotificationSettings_(session,p) {
+  requireRole_(session,["admin"]);
+  const operational=notificationRecipients_(p.operational).join(",");
+  const veterinary=notificationRecipients_(p.veterinary).join(",");
+  // Install the retry worker before reporting success (requires owner authorization).
+  if(!ScriptApp.getProjectTriggers().some(t=>t.getHandlerFunction()==="processBoviRondaNotifications"))
+    ScriptApp.newTrigger("processBoviRondaNotifications").timeBased().everyMinutes(5).create();
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try {
+    const props=PropertiesService.getScriptProperties();
+    // Start at configuration time; never email historic incidents unexpectedly.
+    if(!props.getProperty("BR_MAIL_START")) props.setProperty("BR_MAIL_START",new Date().toISOString());
+    props.setProperties({BR_MAIL_OPERATIONAL:operational,BR_MAIL_VETERINARY:veterinary});
+    return {success:true};
+  } finally {lock.releaseLock();}
+}
+function processBoviRondaNotifications() {
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(1000)) return;
+  try {processNotificationsLocked_();} finally {lock.releaseLock();}
+}
+function processNotificationsLocked_() {
+  const props=PropertiesService.getScriptProperties(), start=props.getProperty("BR_MAIL_START");
+  if(!start) return;
+  const ss=SpreadsheetApp.getActive();
+  let sh=ss.getSheetByName("Notificacoes");
+  if(!sh) {sh=ss.insertSheet("Notificacoes");sh.appendRow(["ID","Estado","Destinatarios","AtualizadoEm","Erro"]);}
+  const delivered=indexBy_(rows_("Notificacoes"),"ID");
+  const parks=indexBy_(rows_(BR.SHEETS.PARKS),"ID"),farms=indexBy_(rows_(BR.SHEETS.FARMS),"ID"),users=indexBy_(rows_(BR.SHEETS.USERS),"ID");
+  const pending=rows_(BR.SHEETS.INCIDENTS).filter(i=>new Date(i.ReportadoEm)>=new Date(start) && !delivered[i.ID]);
+  let processed=0;
+  for(const incident of pending) {
+    if(processed>=20) break;
+    const vet=incident.Tipo==="animal_doente"||incident.Tipo==="animal_morto";
+    if(!vet && incident.Categoria!=="operacional") continue;
+    const recipients=notificationRecipients_(props.getProperty(vet?"BR_MAIL_VETERINARY":"BR_MAIL_OPERATIONAL"));
+    if(!recipients.length || MailApp.getRemainingDailyQuota()<recipients.length) continue;
+    const park=parks[incident.ParqueID]||{},farm=farms[park.ExploracaoID]||{},user=users[incident.ReportadoPorID]||{};
+    const type=incidentTypeText_(incident.Tipo);
+    const body=["Tipo: "+type,"Exploração: "+(farm.Nome||""),"Parque: "+(park.Nome||park.Codigo||""),
+      "Data/hora: "+dateTimeLabel_(incident.ReportadoEm),"Registado por: "+(user.Nome||""),
+      "Descrição: "+(incident.Descricao||""),"Ocorrência: "+incident.ID];
+    if(vet && incident.FotoURL) body.push("Fotografia do brinco: "+incident.FotoURL);
+    // Claim durably before send. MailApp has no idempotency key: never retry an ambiguous send.
+    sh.appendRow([incident.ID,"a_enviar",recipients.join(","),now_(),""]);
+    const row=sh.getLastRow();SpreadsheetApp.flush();
+    try {
+      MailApp.sendEmail({to:recipients.join(","),subject:"BoviRonda · "+type+" · "+(farm.Nome||"")+" · "+(park.Nome||park.Codigo||""),body:body.join("\n"),name:"BoviRonda"});
+      sh.getRange(row,2).setValue("enviado");
+    } catch(error) {
+      sh.getRange(row,2).setValue("incerto");
+      sh.getRange(row,5).setValue(String(error.message||error));
+    }
+    SpreadsheetApp.flush();processed++;
+  }
 }
