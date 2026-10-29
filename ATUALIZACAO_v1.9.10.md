@@ -27,4 +27,4 @@ Os testes usam serviços Google simulados, sem emails reais ou alterações em p
 
 A preparação da imagem usa Image + canvas, disponível em browsers sem createImageBitmap. A sintaxe restante mantém os requisitos da versão existente (incluindo optional chaining, async/await e APIs já utilizadas). Não houve ensaio físico em tablets antigos nem envio real no Apps Script.
 
-Nota da versão base: o frontend já chama ações como resolveIncidentsBulk e getPhoto que não estão definidas no Code.gs atualmente em main. Esta alteração não implementa nem remove essas funcionalidades preexistentes; confirmar que o projeto Apps Script em produção não contém extensões adicionais antes de substituir o ficheiro.
+A versão de produção foi consultada antes da publicação. Foram preservadas as funções getPhoto, resolveIncidentsBulk, importação de parques, recuperação de fotografias e o limite de histórico existentes no Apps Script. A resolução em lote deixa também de exigir NR_PT.
