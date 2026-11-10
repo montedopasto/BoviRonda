@@ -1867,6 +1867,7 @@
     }
     ["animalSick","animalDead"].forEach(id=>document.getElementById(id).addEventListener("change",requireEarTagPhoto));
     document.getElementById("roundPhoto").addEventListener("change", previewPhoto);
+    window.BoviRondaVoice?.mount(document.getElementById("roundForm"), parks.length);
     document.getElementById("roundForm").addEventListener("submit", e => submitRound(e, parks));
   }
 
