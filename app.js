@@ -261,6 +261,17 @@
     if (!state.session?.token) return false;
 
     try {
+      let startup;
+      try {
+        startup = await api("startup");
+      } catch (error) {
+        if (!error.message.startsWith("Ação desconhecida no Apps Script (startup)")) throw error;
+      }
+      if (startup) {
+        state.profile = startup.profile;
+        applyStartupData(startup);
+        return true;
+      }
       const data = await api("me");
       state.profile = data.profile;
 
@@ -282,6 +293,13 @@
       saveSession();
       return false;
     }
+  }
+
+  function applyStartupData(data) {
+    state.dashboard = data.dashboard;
+    state.parks = data.parks.map(p => parkWithCalendarDays(p));
+    state.incidents = data.incidents;
+    state.rounds = data.rounds;
   }
 
   async function loadInitialData() {
