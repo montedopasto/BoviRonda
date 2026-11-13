@@ -25,7 +25,8 @@
     admin: "Admin",
     utilizador: "Utilizador",
     veterinario: "Veterinário",
-    chefia: "Chefia"
+    chefia: "Chefia",
+    consulta: "Consulta"
   };
 
   function toast(message) {
@@ -219,15 +220,15 @@
   }
 
   function roleCanSeeVet() {
-    return ["admin","veterinario"].includes(state.profile?.role);
+    return ["admin","veterinario","consulta"].includes(state.profile?.role);
   }
 
   function roleCanSeeOperations() {
-    return ["admin","chefia","veterinario"].includes(state.profile?.role);
+    return ["admin","chefia","veterinario","consulta"].includes(state.profile?.role);
   }
 
   function roleCanSeeReports() {
-    return ["admin","chefia"].includes(state.profile?.role);
+    return ["admin","chefia","consulta"].includes(state.profile?.role);
   }
 
   async function login(username, pin) {
@@ -369,7 +370,7 @@
       ["incidents","!","Ocorrências"]
     ];
     if (roleCanSeeReports()) items.push(["reports","▤","Relatórios"]);
-    if (state.profile?.role === "admin") items.push(["admin","⚙","Admin"]);
+    if (["admin","consulta"].includes(state.profile?.role)) items.push(["admin","⚙","Admin"]);
     return items;
   }
 
@@ -546,7 +547,7 @@
 
       // Admin: usar diretamente listAdminRecords, que já existe no backend atual.
       // Assim não chamamos listRounds num backend antigo.
-      if (state.profile?.role === "admin") {
+      if (["admin","consulta"].includes(state.profile?.role)) {
         try {
           const adminData = await api("listAdminRecords");
           rounds = adminData?.rounds || [];
@@ -2162,7 +2163,7 @@
     try {
       const data = await api("getIncident", {incidentId:id});
       const i = data.incident;
-      const canVetEdit = i.category === "veterinaria" && roleCanSeeVet();
+      const canVetEdit = i.category === "veterinaria" && ["admin","veterinario"].includes(state.profile.role);
       const canOpEdit = i.category === "operacional" && ["admin","chefia"].includes(state.profile.role);
 
       showModal(`
@@ -2174,6 +2175,7 @@
         </div>
         ${canVetEdit ? vetForm(i, data.veterinary, data.necropsy) : ""}
         ${canOpEdit ? operationalForm(i) : ""}
+        ${state.profile.role==="consulta" ? incidentReadOnly(data) : ""}
       `);
       if (canVetEdit) {
         document.getElementById("vetForm").addEventListener("submit", e => saveVeterinary(e, i));
@@ -2182,6 +2184,16 @@
         document.getElementById("opForm").addEventListener("submit", e => saveOperational(e, i));
       }
     } catch(e) { toast(e.message); }
+  }
+
+  function incidentReadOnly(data) {
+    const v=data.veterinary, n=data.necropsy;
+    const fields=[["Estado",data.incident.statusLabel],["Nota de resolução",data.incident.resolutionNote],
+      ["NR PT",v?.nrPt || n?.nrPt],["Observação clínica",v?.clinicalObservation],
+      ["Diagnóstico",v?.diagnosis],["Tratamento",v?.treatment],["Medicamento",v?.medication],["Dose",v?.dosage],
+      ["Resumo da necrópsia",n?.summary],["Causa provável",n?.probableCause],["Conclusão",n?.conclusion]];
+    return '<section class="card card-pad"><h3>Detalhes da ocorrência</h3>'+fields.filter(([,value])=>value)
+      .map(([label,value])=>'<p><strong>'+escapeHtml(label)+':</strong> '+escapeHtml(value)+'</p>').join("")+'</section>';
   }
 
   function vetForm(i, v={}, n={}) {
@@ -2265,9 +2277,9 @@
   }
 
   async function renderAdmin(el) {
-    if (state.profile.role !== "admin") { el.innerHTML = `<div class="error-box">Acesso reservado ao Administrador.</div>`; return; }
+    if (!["admin","consulta"].includes(state.profile.role)) { el.innerHTML = `<div class="error-box">Acesso reservado ao Administrador.</div>`; return; }
     el.innerHTML = `
-      <div class="page-head"><h2>Administração</h2><p>Utilizadores, parques e QR Codes.</p></div>
+      <div class="page-head"><h2>Administração</h2><p>${state.profile.role==="consulta" ? "Só leitura" : "Utilizadores, parques e QR Codes."}</p></div>
       <div class="admin-tabs">
         <button class="filter-btn active" data-admin-tab="users">Utilizadores</button>
         <button class="filter-btn" data-admin-tab="parks">Parques</button>
@@ -2284,10 +2296,15 @@
   }
 
   async function loadAdminTab(tab) {
+    const readOnly=state.profile.role==="consulta";
     const body = document.getElementById("adminBody");
     try {
       if (tab === "notifications") {
         const settings=await api("getNotificationSettings");
+        if (readOnly) {
+          body.innerHTML=`<section class="card card-pad"><h3>Notificações por email</h3><p><strong>Operacionais:</strong> ${escapeHtml(settings.operational||"—")}</p><p><strong>Veterinárias:</strong> ${escapeHtml(settings.veterinary||"—")}</p><p>Envios por confirmar: ${settings.uncertain.length}</p></section>`;
+          return;
+        }
         body.innerHTML=`<form id="notificationForm" class="card card-pad form-grid">
           <h3>Notificações por email</h3><p>Separe os emails por vírgula ou ponto e vírgula. Uma lista vazia suspende o respetivo envio; as novas ocorrências ficam pendentes.</p>
           <div class="field"><label>Destinatários operacionais</label><textarea id="mailOperational">${escapeHtml(settings.operational)}</textarea></div>
@@ -2304,17 +2321,17 @@
         const users = await api("listUsers");
         state.users = users;
         body.innerHTML = `
-          <button id="addUserBtn" class="btn btn-primary" style="margin-bottom:12px">+ Novo utilizador</button>
+          ${readOnly ? "" : `<button id="addUserBtn" class="btn btn-primary" style="margin-bottom:12px">+ Novo utilizador</button>`}
           <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Utilizador</th><th>Perfil</th><th>Estado</th><th></th></tr></thead><tbody>
           ${users.map(u=>`<tr>
             <td>${escapeHtml(u.fullName)}</td>
             <td>${escapeHtml(u.username)}</td>
             <td>${escapeHtml(ROLE_LABELS[u.role]||u.role)}</td>
             <td>${u.active?'<span class="badge badge-green">Ativo</span>':'<span class="badge badge-grey">Inativo</span>'}</td>
-            <td><button class="btn btn-soft edit-user-btn" data-id="${u.id}">Editar</button></td>
+            <td>${readOnly ? "" : `<button class="btn btn-soft edit-user-btn" data-id="${u.id}">Editar</button>`}</td>
           </tr>`).join("")}
           </tbody></table></div>`;
-        document.getElementById("addUserBtn").addEventListener("click", newUserModal);
+        document.getElementById("addUserBtn")?.addEventListener("click", newUserModal);
         document.querySelectorAll(".edit-user-btn").forEach(btn => btn.addEventListener("click", () => {
           const user = state.users.find(u => u.id === btn.dataset.id);
           if (user) editUserModal(user);
@@ -2323,21 +2340,21 @@
         const adminParks = await api("listAdminParks");
         state.adminParks = adminParks;
         body.innerHTML = `
-          <div class="admin-action-row" style="margin-bottom:12px">
+          ${readOnly ? "" : `<div class="admin-action-row" style="margin-bottom:12px">
           <button id="addParkBtn" class="btn btn-primary">+ Novo parque</button>
           <button id="bulkParkBtn" class="btn btn-outline">⇩ Importar parques em massa</button>
-        </div>
+        </div>`}
           <div class="table-wrap"><table><thead><tr><th>Nome</th><th>Exploração</th><th>Estado</th><th>QR</th><th></th></tr></thead><tbody>
           ${adminParks.map(p=>`<tr>
             <td>${escapeHtml(p.name||"Parque")}</td>
             <td>${escapeHtml(p.farmName)}</td>
             <td>${p.active?'<span class="badge badge-green">Disponível</span>':'<span class="badge badge-grey">Indisponível</span>'}</td>
             <td><button class="btn btn-soft show-qr" data-id="${p.id}" ${p.active?"":"disabled"}>Ver QR</button></td>
-            <td><button class="btn btn-soft edit-park-btn" data-id="${p.id}">Editar</button></td>
+            <td>${readOnly ? "" : `<button class="btn btn-soft edit-park-btn" data-id="${p.id}">Editar</button>`}</td>
           </tr>`).join("")}
           </tbody></table></div>`;
-        document.getElementById("addParkBtn").addEventListener("click", newParkModal);
-        document.getElementById("bulkParkBtn").addEventListener("click", bulkParkImportModal);
+        document.getElementById("addParkBtn")?.addEventListener("click", newParkModal);
+        document.getElementById("bulkParkBtn")?.addEventListener("click", bulkParkImportModal);
         document.querySelectorAll(".show-qr").forEach(b=>b.addEventListener("click",()=>showParkQr(b.dataset.id, adminParks)));
         document.querySelectorAll(".edit-park-btn").forEach(b=>b.addEventListener("click",()=>{
           const park=adminParks.find(p=>p.id===b.dataset.id);
@@ -2353,8 +2370,8 @@
 
         body.innerHTML = `
           <div class="card card-pad" style="margin-bottom:14px">
-            <h3 style="margin:0 0 5px">Correção de registos</h3>
-            <p style="margin:0;color:var(--muted);font-size:.84rem">Aqui o Admin pode corrigir ou eliminar rondas e ocorrências criadas por engano. Todas as alterações ficam registadas no AuditLog.</p>
+            <h3 style="margin:0 0 5px">${readOnly ? "Consulta de registos" : "Correção de registos"}</h3>
+            <p style="margin:0;color:var(--muted);font-size:.84rem">${readOnly ? "Rondas e ocorrências em modo só leitura." : "Aqui o Admin pode corrigir ou eliminar rondas e ocorrências criadas por engano. Todas as alterações ficam registadas no AuditLog."}</p>
           </div>
           <div class="filters" style="margin-bottom:12px">
             <button class="filter-btn active" data-record-type="rounds">Rondas (${state.adminRounds.length})</button>
@@ -2386,10 +2403,10 @@
                     <td>${escapeHtml(r.waterLabel)}</td>
                     <td>${escapeHtml(r.feedLabel)}</td>
                     <td>
-                      <div style="display:flex;gap:7px;flex-wrap:wrap">
+                      ${readOnly ? "" : `<div style="display:flex;gap:7px;flex-wrap:wrap">
                         <button class="btn btn-soft edit-round-btn" data-id="${r.id}">Editar</button>
                         <button class="btn btn-danger delete-round-direct-btn" data-id="${r.id}">Eliminar</button>
-                      </div>
+                      </div>`}
                     </td>
                   </tr>`).join("")}
                 </tbody>
@@ -2433,15 +2450,16 @@
                     <td>${escapeHtml(i.statusLabel)}</td>
                     <td>${escapeHtml(i.reportedByName)}</td>
                     <td>
-                      <div style="display:flex;gap:7px;flex-wrap:wrap">
+                      ${readOnly ? `<button class="btn btn-soft incident-open" data-id="${escapeHtml(i.id)}">Ver detalhes</button>` : `<div style="display:flex;gap:7px;flex-wrap:wrap">
                         <button class="btn btn-soft edit-incident-admin-btn" data-id="${i.id}">Editar</button>
                         <button class="btn btn-danger delete-incident-direct-btn" data-id="${i.id}">Eliminar</button>
-                      </div>
+                      </div>`}
                     </td>
                   </tr>`).join("")}
                 </tbody>
               </table></div>` : `<div class="card empty">Ainda não existem ocorrências registadas.</div>`;
 
+            bindIncidentButtons();
             document.querySelectorAll(".edit-incident-admin-btn").forEach(b=>b.addEventListener("click",()=>{
               const rec=state.adminIncidents.find(i=>i.id===b.dataset.id);
               if(rec) editIncidentAdminModal(rec);
@@ -2482,7 +2500,7 @@
         <div class="field"><label>Username</label><input id="newUsername" required></div>
         <div class="field"><label>PIN</label><input id="newPin" type="password" inputmode="numeric" pattern="[0-9]*" required placeholder="4 a 8 dígitos"></div>
         <div class="field"><label>Confirmar PIN</label><input id="newPinConfirm" type="password" inputmode="numeric" pattern="[0-9]*" required></div>
-        <div class="field"><label>Perfil</label><select id="newRole"><option value="utilizador">Utilizador</option><option value="veterinario">Veterinário</option><option value="chefia">Chefia</option><option value="admin">Admin</option></select></div>
+        <div class="field"><label>Perfil</label><select id="newRole"><option value="utilizador">Utilizador</option><option value="veterinario">Veterinário</option><option value="chefia">Chefia</option><option value="consulta">Consulta (só leitura)</option><option value="admin">Admin</option></select></div>
         <button class="btn btn-primary" type="submit">Criar utilizador</button>
       </form>`);
     document.getElementById("newUserForm").addEventListener("submit", async e=>{
@@ -2512,6 +2530,7 @@
             <option value="utilizador" ${user.role==="utilizador"?"selected":""}>Utilizador</option>
             <option value="veterinario" ${user.role==="veterinario"?"selected":""}>Veterinário</option>
             <option value="chefia" ${user.role==="chefia"?"selected":""}>Chefia</option>
+            <option value="consulta" ${user.role==="consulta"?"selected":""}>Consulta (só leitura)</option>
             <option value="admin" ${user.role==="admin"?"selected":""}>Admin</option>
           </select>
         </div>
@@ -2942,4 +2961,5 @@
   }
   init();
 })();
+
 
