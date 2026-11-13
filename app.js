@@ -783,6 +783,15 @@
     return {from,to,farm,parkId,rounds,incidents,parks};
   }
 
+  const ROUND_CLEANING = [
+    ["cleanPark","Limpeza de Parque"],
+    ["cleanDrinkers","Limpeza de Bebedouros"],
+    ["cleanFeeders","Limpeza de Comedouros"]
+  ];
+  function cleaningReportValue(round,key) {
+    return round[key]===true ? "Sim" : round[key]===false ? "Não assinalada" : "Sem registo";
+  }
+
   function buildReportsContent() {
     const root = document.getElementById("reportsContent");
     if (!root) return;
@@ -840,7 +849,7 @@
       <section class="card card-pad report-section">
         <div class="report-section-head"><div><h3>Rondas</h3><p>${rounds.length} registos</p></div></div>
         <div class="table-wrap"><table class="report-table">
-          <thead><tr><th>Data</th><th>Exploração</th><th>Parque</th><th>Colaborador</th><th>Água</th><th>Comida</th><th>Infra.</th><th>Observações</th></tr></thead>
+          <thead><tr><th>Data</th><th>Exploração</th><th>Parque</th><th>Colaborador</th><th>Água</th><th>Comida</th><th>Infra.</th>${ROUND_CLEANING.map(([,label])=>`<th>${label}</th>`).join("")}<th>Observações</th></tr></thead>
           <tbody>${rounds.length ? rounds.map(r=>`<tr>
             <td>${escapeHtml(r.completedAtLabel||"")}</td>
             <td>${escapeHtml(r.farmName||"")}</td>
@@ -849,8 +858,9 @@
             <td>${escapeHtml(reportStatusText(r.water))}</td>
             <td>${escapeHtml(reportStatusText(r.feed))}</td>
             <td>${escapeHtml(reportStatusText(r.infrastructure))}</td>
+            ${ROUND_CLEANING.map(([key])=>`<td>${cleaningReportValue(r,key)}</td>`).join("")}
             <td>${escapeHtml(r.notes||"")}</td>
-          </tr>`).join("") : `<tr><td colspan="8" class="report-empty">Sem rondas.</td></tr>`}</tbody>
+          </tr>`).join("") : `<tr><td colspan="11" class="report-empty">Sem rondas.</td></tr>`}</tbody>
         </table></div>
       </section>`;
 
@@ -1016,7 +1026,7 @@
       rows.push([]);
 
       rows.push(["RONDAS"]);
-      rows.push(["Data","Exploração","Parque","Colaborador","Água","Comida","Infraestrutura","Observações"]);
+      rows.push(["Data","Exploração","Parque","Colaborador","Água","Comida","Infraestrutura",...ROUND_CLEANING.map(([,label])=>label),"Observações"]);
       rounds.forEach(r => rows.push([
         r.completedAtLabel || "",
         r.farmName || "",
@@ -1025,6 +1035,7 @@
         reportStatusText(r.water),
         reportStatusText(r.feed),
         reportStatusText(r.infrastructure),
+        ...ROUND_CLEANING.map(([key])=>cleaningReportValue(r,key)),
         r.notes || ""
       ]));
 
@@ -1052,7 +1063,7 @@
     }
 
     if (reportType === "rounds") {
-      rows.push(["Data","Exploração","Parque","Colaborador","Água","Comida","Infraestrutura","Observações"]);
+      rows.push(["Data","Exploração","Parque","Colaborador","Água","Comida","Infraestrutura",...ROUND_CLEANING.map(([,label])=>label),"Observações"]);
       rounds.forEach(r => rows.push([
         r.completedAtLabel || "",
         r.farmName || "",
@@ -1061,6 +1072,7 @@
         reportStatusText(r.water),
         reportStatusText(r.feed),
         reportStatusText(r.infrastructure),
+        ...ROUND_CLEANING.map(([key])=>cleaningReportValue(r,key)),
         r.notes || ""
       ]));
     }
@@ -1882,6 +1894,12 @@
           </div>
         </section>
         <section class="card card-pad">
+          <h3 style="margin-top:0">Limpeza</h3>
+          <div class="choice-grid three">
+            ${ROUND_CLEANING.map(([key,label])=>checkChoice(key,"✓",label)).join("")}
+          </div>
+        </section>
+        <section class="card card-pad">
           <h3 style="margin-top:0">Animais</h3>
           <div class="choice-grid two">
             ${checkChoice("animalSick","🩺","Animal doente")}
@@ -1983,6 +2001,7 @@
       payload = {
         requestId: Date.now().toString(36)+"-"+Math.random().toString(36).slice(2),
         water: fd.get("water"), feed: fd.get("feed"),
+        ...Object.fromEntries(ROUND_CLEANING.map(([key])=>[key,document.getElementById(key).checked])),
         animalSick: document.getElementById("animalSick").checked,
         animalDead: document.getElementById("animalDead").checked,
         infrastructure: fd.get("infra"),
@@ -2961,5 +2980,6 @@
   }
   init();
 })();
+
 
 
