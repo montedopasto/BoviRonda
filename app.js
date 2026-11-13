@@ -240,99 +240,66 @@
     state.profile = data.profile;
     saveSession();
 
-    openSessionPanel();
-  }
-
-  function openSessionPanel() {
-    state.dashboard = null;
+    // Entrar na aplicação imediatamente após autenticação.
+    state.dashboard = {totalParks:0, openIncidents:0, farms:[]};
     state.parks = [];
     state.incidents = [];
     state.rounds = [];
-    state.roundsPending = null;
-    state.roundsReady = false;
-    state.roundsError = "";
-    state.startupStatus = "loading";
     renderShell();
-    loadSessionPanel();
-  }
 
-  async function loadSessionPanel() {
-    const session=state.session;
-    state.startupStatus="loading";
+    // Carregamento de dados não pode bloquear nem desfazer o login.
     try {
       await loadInitialData();
-      if (state.session!==session) return;
-      state.startupStatus="";
-    } catch (error) {
-      if (state.session!==session) return;
-      state.startupStatus="error";
+      renderShell();
+    } catch (err) {
+      console.error("BoviRonda: erro ao carregar dados iniciais", err);
+      toast("Sessão iniciada. Alguns dados não puderam ser carregados.");
     }
-    // Do not interrupt a form or another page opened during loading.
-    if (["home","parks","rounds","incidents"].includes(state.page) &&
-        document.getElementById("startupPanel")) renderPage();
+  }
+
+  async function resumeSession() {
+    if (!state.session?.token) return false;
+
+    try {
+      const data = await api("me");
+      state.profile = data.profile;
+
+      state.dashboard = {totalParks:0, openIncidents:0, farms:[]};
+      state.parks = [];
+      state.incidents = [];
+      state.rounds = [];
+
+      try {
+        await loadInitialData();
+      } catch (err) {
+        console.error("BoviRonda: falha ao atualizar dados da sessão", err);
+      }
+
+      return true;
+    } catch {
+      state.session = null;
+      state.profile = null;
+      saveSession();
+      return false;
+    }
   }
 
   async function loadInitialData() {
-    const session=state.session;
-    const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),25000);
-    const options={signal:controller.signal};
+    const [dashboard, parks, incidents] = await Promise.all([
+      api("dashboard"),
+      api("listParks"),
+      api("listIncidents", {status:"open"})
+    ]);
+
+    state.dashboard = dashboard;
+    state.parks = parks;
+    state.incidents = incidents;
+
     try {
-      const [dashboard, parks, incidents] = await Promise.all([
-        api("dashboard",{},options),
-        api("listParks",{},options),
-        api("listIncidents",{status:"open"},options)
-      ]);
-      if (state.session!==session) return;
-      state.dashboard=dashboard;
-      state.parks=parks;
-      state.incidents=incidents;
-      state.roundsReady=false;
-      state.roundsError="";
-      state.roundsPending=null;
-    } finally { clearTimeout(timer); controller.abort(); }
-  }
-
-  function loadRoundHistory() {
-    if (state.roundsPending) return state.roundsPending;
-    const session=state.session, controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),25000);
-    const task=api("listRounds",{}, {signal:controller.signal}).then(rounds=>{
-      if (state.session===session && state.roundsPending===task) {
-        state.rounds=rounds;
-        state.roundsReady=true;
-      }
-    }).catch(()=>{
-      if (state.session===session && state.roundsPending===task) state.roundsError="Não foi possível carregar o histórico.";
-    }).finally(()=>{
-      clearTimeout(timer);
-      if (state.roundsPending!==task) return;
-      state.roundsPending=null;
-      if (state.session===session) updateRoundHistory();
-    });
-    state.roundsPending=task;
-    return task;
-  }
-
-  function updateRoundHistory() {
-    const box=document.getElementById("roundHistoryList");
-    if (!box) return;
-    const count=document.getElementById("roundHistoryCount");
-    if (state.roundsReady) {
-      const rounds=state.rounds;
-      count.textContent=rounds.length+" registo"+(rounds.length===1?"":"s");
-      box.innerHTML=rounds.length ? rounds.map(roundHistoryCard).join("") : '<div class="card empty">Ainda não existem rondas registadas.</div>';
-    } else if (state.roundsError) {
-      count.textContent=state.roundsError;
-      box.innerHTML='<button class="btn btn-outline" type="button">Tentar novamente</button>';
-      box.querySelector("button").addEventListener("click",()=>{
-        state.roundsError="";
-        updateRoundHistory();
-        loadRoundHistory();
-      });
-    } else {
-      count.textContent="A carregar histórico…";
-      box.innerHTML="";
+      state.rounds = await api("listRounds");
+    } catch (err) {
+      console.warn("BoviRonda: listRounds indisponível nesta versão do backend.", err);
+      state.rounds = [];
     }
   }
 
@@ -441,16 +408,6 @@
     state.parks=(state.parks||[]).map(p=>parkWithCalendarDays(p));
     const el = document.getElementById("page");
     if (!el) return;
-    if (state.startupStatus && ["home","parks","rounds","incidents"].includes(state.page)) {
-      const failed=state.startupStatus==="error";
-      el.innerHTML='<section id="startupPanel" class="card card-pad" role="status">'+
-        (failed ? 'Não foi possível carregar os dados. <button id="retryStartup" class="btn btn-outline" type="button">Tentar novamente</button>' : 'A carregar parques e ocorrências…')+'</section>';
-      document.getElementById("retryStartup")?.addEventListener("click",()=>{
-        loadSessionPanel();
-        renderPage();
-      });
-      return;
-    }
     if (state.page === "home") renderHome(el);
     else if (state.page === "rounds") renderRounds(el);
     else if (state.page === "scan") renderScanner(el);
@@ -1612,6 +1569,7 @@
   }
 
   function renderRounds(el) {
+    const rounds = state.rounds || [];
     const farms = [...new Set(
       (state.parks || [])
         .map(p => String(p.farmName || "").trim())
@@ -1670,11 +1628,13 @@
       <div class="section-title rounds-history-title">
         <div>
           <h3>Rondas efetuadas</h3>
-          <p id="roundHistoryCount" role="status"></p>
+          <p>${rounds.length} registo${rounds.length===1?"":"s"} encontrado${rounds.length===1?"":"s"}</p>
         </div>
       </div>
 
-      <div class="rounds-list" id="roundHistoryList"></div>
+      <div class="rounds-list">
+        ${rounds.length ? rounds.map(roundHistoryCard).join("") : `<div class="card empty">Ainda não existem rondas registadas.</div>`}
+      </div>
     `;
 
     if (roleCanRound()) {
@@ -1721,8 +1681,6 @@
 
       document.getElementById("roundQrBtn").addEventListener("click", openQrScannerModal);
     }
-    updateRoundHistory();
-    if (!state.roundsReady && !state.roundsError) loadRoundHistory();
   }
 
   function roundHistoryCard(r) {
@@ -1766,38 +1724,12 @@
     setTimeout(startModalScanner, 120);
   }
 
-  const qrScripts=new Map();
-  function loadQrScript(name, url) {
-    if (window[name]) return Promise.resolve();
-    if (qrScripts.has(name)) return qrScripts.get(name);
-    const task=new Promise((resolve,reject)=>{
-      const script=document.createElement("script");
-      script.src=url;
-      const timeout=setTimeout(()=>fail(),12000);
-      function fail() { clearTimeout(timeout); script.remove(); reject(new Error("O leitor QR não carregou.")); }
-      script.onerror=fail;
-      script.onload=()=>{
-        clearTimeout(timeout);
-        if (window[name]) resolve(); else fail();
-      };
-      document.head.appendChild(script);
-    }).catch(error=>{qrScripts.delete(name);throw error;});
-    qrScripts.set(name,task);
-    return task;
-  }
-
-  function loadQrReader() {
-    return loadQrScript("Html5Qrcode","https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js");
-  }
-
   async function startModalScanner() {
     const status = document.getElementById("modalScanStatus");
     if (!status) return;
+    if (!window.Html5Qrcode) { status.textContent = "O leitor QR não carregou."; return; }
     try {
-      await loadQrReader();
-      if (!status.isConnected) return;
       await stopScanner();
-      if (!status.isConnected) return;
       state.scanner = new Html5Qrcode("qr-reader");
       await state.scanner.start(
         { facingMode: "environment" },
@@ -1844,10 +1776,11 @@
 
   async function startScanner() {
     const status = document.getElementById("scanStatus");
-    if (!status) return;
+    if (!window.Html5Qrcode) {
+      status.textContent = "O leitor QR não carregou. Use a seleção manual.";
+      return;
+    }
     try {
-      await loadQrReader();
-      if (!status.isConnected) return;
       state.scanner = new Html5Qrcode("qr-reader");
       await state.scanner.start(
         { facingMode: "environment" },
@@ -2963,16 +2896,7 @@
         <button id="printQrBtn" class="btn btn-primary">Imprimir</button>
       </div>`);
     const value = p.qrToken;
-    const box=document.getElementById("qrBox");
-    const print=document.getElementById("printQrBtn");
-    print.disabled=true;
-    box.textContent="A carregar QR…";
-    loadQrScript("QRCode","https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js").then(()=>{
-      if (!box.isConnected) return;
-      box.textContent="";
-      new QRCode(box,{text:value,width:200,height:200});
-      print.disabled=false;
-    }).catch(()=>{box.textContent="Não foi possível carregar o QR. Feche e tente novamente.";});
+    if (window.QRCode) new QRCode(document.getElementById("qrBox"), {text:value,width:200,height:200});
     document.getElementById("printQrBtn").addEventListener("click",()=>window.print());
   }
 
@@ -2993,30 +2917,11 @@
   }
 
   async function init() {
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
     loadSession();
-    if (!state.session?.token) { renderLogin(); return; }
-    const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),12000);
-    try {
-      const data=await api("me",{}, {signal:controller.signal});
-      state.profile=data.profile;
-      openSessionPanel();
-    } catch (error) {
-      if (/sessão (inválida|expirada)|utilizador inativo/i.test(error.message)) {
-        state.session=null;
-        saveSession();
-        renderLogin();
-      } else {
-        app.innerHTML='<div class="boot"><h1>BoviRonda</h1><p>Não foi possível confirmar a sessão. Verifique a ligação.</p><button id="retrySession" class="btn btn-primary" type="button">Tentar novamente</button><button id="otherSession" class="btn btn-outline" type="button">Voltar ao início de sessão</button></div>';
-        document.getElementById("retrySession").onclick=()=>{
-          document.getElementById("retrySession").disabled=true;
-          document.getElementById("otherSession").disabled=true;
-          init();
-        };
-        document.getElementById("otherSession").onclick=()=>renderLogin();
-      }
-    } finally { clearTimeout(timer); }
+    if (state.session && await resumeSession()) renderShell();
+    else renderLogin();
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
   }
   init();
 })();
+
