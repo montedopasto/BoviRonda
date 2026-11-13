@@ -900,19 +900,13 @@ function photoKey_(value) {
   const m=String(value||"").match(/[?&]resourcekey=([^&#]+)/i);
   return m ? decodeURIComponent(m[1]) : "";
 }
-function sharePhoto_(file) {
-  // Workspace may prohibit public links. Authenticated getPhoto remains available.
-  try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW); return "partilha por ligação ativa"; }
-  catch(e) { return "partilha pública bloqueada: "+e.message+"; usar sessão da app"; }
-}
 function savePhoto_(dataUrl,name) {
   const m=String(dataUrl).match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
   if(!m || !PHOTO_MIMES_.includes(m[1])) throw new Error("Fotografia inválida. Use JPEG, PNG, WebP ou GIF.");
   const bytes=Utilities.base64Decode(m[2]);
   if(!bytes.length || bytes.length>12*1024*1024) throw new Error("Fotografia vazia ou superior a 12 MB.");
   const file=createPhotoFolder_().createFile(Utilities.newBlob(bytes,m[1],name));
-  const sharing=sharePhoto_(file);
-  return {id:file.getId(),url:photoUrl_(file.getId(),file.getResourceKey()),sharing};
+  return {id:file.getId(),url:photoUrl_(file.getId(),file.getResourceKey())};
 }
 let photoIndexCache_;
 function photoIndex_() {
@@ -1007,7 +1001,7 @@ function continuarReparacaoFotosBoviRonda() {
           if(!memo[id]) {
             const file=photoFile_(id,photoKey_(source));
             if(!PHOTO_MIMES_.includes(file.getMimeType())) throw new Error("Formato não suportado");
-            memo[id]={url:photoUrl_(id,file.getResourceKey()),status:sharePhoto_(file)};
+            memo[id]={url:photoUrl_(id,file.getResourceKey()),status:"Ligação normalizada; permissões preservadas"};
           }
           const result=memo[id];
           if(String(before)!==result.url) cell.setValue(result.url);
