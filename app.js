@@ -14,6 +14,7 @@
     farms: [],
     page: "home",
     farmFilter: "Todos",
+    pendingFarmFilter: "Todos",
     scanner: null,
     reportIncidents: [],
     reportHealth: [],
@@ -1287,6 +1288,23 @@
       bindParkButtons();
     });
 
+    document.getElementById("dashboardParkSection").addEventListener("click", event => {
+      const button = event.target.closest("[data-pending-farm]");
+      if (!button) return;
+      state.pendingFarmFilter = button.dataset.pendingFarm;
+      const group = button.closest(".dashboard-park-group-pending");
+      const parks = pendingParksForFarm(notTodayParks);
+      group.querySelector(".dashboard-count").textContent = parks.length;
+      const grid = group.querySelector(".dashboard-park-grid");
+      grid.innerHTML = dashboardParkGrid(parks, "pending");
+      group.querySelectorAll("[data-pending-farm]").forEach(option => {
+        const selected = option === button;
+        option.classList.toggle("active", selected);
+        option.setAttribute("aria-pressed", String(selected));
+      });
+      bindParkButtons(grid);
+    });
+
     document.getElementById("showPendingBtn").addEventListener("click", () => {
       document.getElementById("dashboardParkSection").innerHTML = renderDashboardParkGroup("Parques sem ronda hoje","Não significa necessariamente atraso; mostra apenas que ainda não foram visitados hoje",notTodayParks,"pending");
       bindParkButtons();
@@ -1387,7 +1405,17 @@
     `;
   }
 
+  function pendingParksForFarm(parks) {
+    return state.pendingFarmFilter === "Todos" ? parks : parks.filter(p => p.farmName === state.pendingFarmFilter);
+  }
+
+  function dashboardParkGrid(parks, mode) {
+    return parks.length ? parks.map(p => dashboardParkCard(p, mode)).join("") :
+      `<div class="card empty dashboard-empty">${mode === "done" ? "Ainda nenhum parque recebeu ronda hoje." : mode === "pending" && state.pendingFarmFilter !== "Todos" ? "Não há parques sem ronda hoje nesta exploração." : "Não existem parques nesta situação."}</div>`;
+  }
+
   function renderDashboardParkGroup(title, subtitle, parks, mode) {
+    if (mode === "pending") parks = pendingParksForFarm(parks);
     const icon = mode === "done" ? "✓" : mode === "overdue" ? "!" : "○";
     return `
       <section class="dashboard-park-group dashboard-park-group-${mode}">
@@ -1396,10 +1424,13 @@
             <h3><span class="dashboard-section-icon">${icon}</span>${escapeHtml(title)}</h3>
             <p>${escapeHtml(subtitle)}</p>
           </div>
-          <span class="dashboard-count">${parks.length}</span>
+          <span class="dashboard-count"${mode === "pending" ? ' aria-live="polite"' : ""}>${parks.length}</span>
         </div>
+        ${mode === "pending" ? `<div class="filters" style="margin-bottom:12px" role="group" aria-label="Filtrar parques sem ronda por exploração">
+          ${["Todos","Monte Ruivo","Trolho"].map(f => `<button type="button" class="filter-btn ${state.pendingFarmFilter===f?'active':''}" data-pending-farm="${f}" aria-pressed="${state.pendingFarmFilter===f}">${f}</button>`).join("")}
+        </div>` : ""}
         <div class="dashboard-park-grid">
-          ${parks.length ? parks.map(p => dashboardParkCard(p, mode)).join("") : `<div class="card empty dashboard-empty">${mode === "done" ? "Ainda nenhum parque recebeu ronda hoje." : "Não existem parques nesta situação."}</div>`}
+          ${dashboardParkGrid(parks, mode)}
         </div>
       </section>`;
   }
@@ -1510,8 +1541,8 @@
     bindParkButtons();
   }
 
-  function bindParkButtons() {
-    document.querySelectorAll(".park-open").forEach(b => b.addEventListener("click", () => openPark(b.dataset.id)));
+  function bindParkButtons(root=document) {
+    root.querySelectorAll(".park-open").forEach(b => b.addEventListener("click", () => openPark(b.dataset.id)));
   }
 
   async function openPark(id) {
