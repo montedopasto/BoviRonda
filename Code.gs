@@ -153,7 +153,7 @@ function login_(p) {
   const token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g,"");
   const expires = new Date(Date.now() + BR.SESSION_HOURS * 3600000);
   append_(sheet_(BR.SHEETS.SESSIONS),[token,user.ID,expires,now_()]);
-  audit_(user.ID,"Sessao",token,"LOGIN",null,{username:user.Username});
+  audit_(user.ID,"Sessao","","LOGIN",null,{username:user.Username});
   return {token,expiresAt:expires.toISOString(),profile:profileForClient_(user)};
 }
 
@@ -337,7 +337,8 @@ function createRoundLocked_(session,p) {
   if(bool_(p.animalSick)) incident("veterinaria","animal_doente","por_observar","");
   if(bool_(p.animalDead)) incident("veterinaria","animal_morto","por_observar","");
 
-  audit_(session.user.ID,"Ronda",roundId,"CREATE",null,p);
+  const {photoDataUrl: omittedPhoto, ...auditPayload} = p;
+  audit_(session.user.ID,"Ronda",roundId,"CREATE",null,auditPayload);
   try { processNotificationsLocked_(); } catch(error) { console.error(error); }
   return {roundId,incidentsCreated:count};
 }
@@ -550,7 +551,7 @@ function updateUser_(session,p) {
   );
   if(duplicated) throw new Error("Já existe outro utilizador com esse username.");
 
-  const before = found.object;
+  const {PINHash: omittedPinHash, ...before} = found.object;
   const update = {
     Nome: fullName,
     Username: username,
@@ -899,19 +900,13 @@ function photoKey_(value) {
   const m=String(value||"").match(/[?&]resourcekey=([^&#]+)/i);
   return m ? decodeURIComponent(m[1]) : "";
 }
-function sharePhoto_(file) {
-  // Workspace may prohibit public links. Authenticated getPhoto remains available.
-  try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW); return "partilha por ligação ativa"; }
-  catch(e) { return "partilha pública bloqueada: "+e.message+"; usar sessão da app"; }
-}
 function savePhoto_(dataUrl,name) {
   const m=String(dataUrl).match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
   if(!m || !PHOTO_MIMES_.includes(m[1])) throw new Error("Fotografia inválida. Use JPEG, PNG, WebP ou GIF.");
   const bytes=Utilities.base64Decode(m[2]);
   if(!bytes.length || bytes.length>12*1024*1024) throw new Error("Fotografia vazia ou superior a 12 MB.");
   const file=createPhotoFolder_().createFile(Utilities.newBlob(bytes,m[1],name));
-  const sharing=sharePhoto_(file);
-  return {id:file.getId(),url:photoUrl_(file.getId(),file.getResourceKey()),sharing};
+  return {id:file.getId(),url:photoUrl_(file.getId(),file.getResourceKey())};
 }
 let photoIndexCache_;
 function photoIndex_() {
@@ -1006,7 +1001,7 @@ function continuarReparacaoFotosBoviRonda() {
           if(!memo[id]) {
             const file=photoFile_(id,photoKey_(source));
             if(!PHOTO_MIMES_.includes(file.getMimeType())) throw new Error("Formato não suportado");
-            memo[id]={url:photoUrl_(id,file.getResourceKey()),status:sharePhoto_(file)};
+            memo[id]={url:photoUrl_(id,file.getResourceKey()),status:"Ligação normalizada; permissões preservadas"};
           }
           const result=memo[id];
           if(String(before)!==result.url) cell.setValue(result.url);
@@ -1043,7 +1038,10 @@ function rows_(name) {
   });
 }
 
-function append_(sh,row){sh.appendRow(row)}
+function sheetLiteral_(value) {
+  return typeof value === "string" && value.startsWith("=") ? "'" + value : value;
+}
+function append_(sh,row){sh.appendRow(row.map(sheetLiteral_))}
 function id_(){return Utilities.getUuid()}
 function now_(){return new Date()}
 function normalize_(s){return String(s||"").trim().toLowerCase()}
@@ -1099,7 +1097,7 @@ function findRow_(sheetName,key,value){
 }
 function updateCells_(sheetName,rowNum,values){
   const sh=sheet_(sheetName),headers=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
-  Object.keys(values).forEach(k=>{const idx=headers.indexOf(k);if(idx>=0)sh.getRange(rowNum,idx+1).setValue(values[k])});
+  Object.keys(values).forEach(k=>{const idx=headers.indexOf(k);if(idx>=0)sh.getRange(rowNum,idx+1).setValue(sheetLiteral_(values[k]))});
 }
 function audit_(userId,entity,entityId,action,before,after){
   append_(sheet_(BR.SHEETS.AUDIT),[id_(),userId||"",entity,entityId||"",action,JSON.stringify(before||{}),JSON.stringify(after||{}),now_()]);
