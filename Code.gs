@@ -153,7 +153,7 @@ function login_(p) {
   const token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g,"");
   const expires = new Date(Date.now() + BR.SESSION_HOURS * 3600000);
   append_(sheet_(BR.SHEETS.SESSIONS),[token,user.ID,expires,now_()]);
-  audit_(user.ID,"Sessao",token,"LOGIN",null,{username:user.Username});
+  audit_(user.ID,"Sessao","","LOGIN",null,{username:user.Username});
   return {token,expiresAt:expires.toISOString(),profile:profileForClient_(user)};
 }
 
@@ -337,7 +337,8 @@ function createRoundLocked_(session,p) {
   if(bool_(p.animalSick)) incident("veterinaria","animal_doente","por_observar","");
   if(bool_(p.animalDead)) incident("veterinaria","animal_morto","por_observar","");
 
-  audit_(session.user.ID,"Ronda",roundId,"CREATE",null,p);
+  const {photoDataUrl: omittedPhoto, ...auditPayload} = p;
+  audit_(session.user.ID,"Ronda",roundId,"CREATE",null,auditPayload);
   try { processNotificationsLocked_(); } catch(error) { console.error(error); }
   return {roundId,incidentsCreated:count};
 }
@@ -550,7 +551,7 @@ function updateUser_(session,p) {
   );
   if(duplicated) throw new Error("Já existe outro utilizador com esse username.");
 
-  const before = found.object;
+  const {PINHash: omittedPinHash, ...before} = found.object;
   const update = {
     Nome: fullName,
     Username: username,
