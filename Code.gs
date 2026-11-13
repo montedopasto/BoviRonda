@@ -1038,7 +1038,10 @@ function rows_(name) {
   });
 }
 
-function append_(sh,row){sh.appendRow(row)}
+function sheetLiteral_(value) {
+  return typeof value === "string" && value.startsWith("=") ? "'" + value : value;
+}
+function append_(sh,row){sh.appendRow(row.map(sheetLiteral_))}
 function id_(){return Utilities.getUuid()}
 function now_(){return new Date()}
 function normalize_(s){return String(s||"").trim().toLowerCase()}
@@ -1094,7 +1097,7 @@ function findRow_(sheetName,key,value){
 }
 function updateCells_(sheetName,rowNum,values){
   const sh=sheet_(sheetName),headers=sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
-  Object.keys(values).forEach(k=>{const idx=headers.indexOf(k);if(idx>=0)sh.getRange(rowNum,idx+1).setValue(values[k])});
+  Object.keys(values).forEach(k=>{const idx=headers.indexOf(k);if(idx>=0)sh.getRange(rowNum,idx+1).setValue(sheetLiteral_(values[k]))});
 }
 function audit_(userId,entity,entityId,action,before,after){
   append_(sheet_(BR.SHEETS.AUDIT),[id_(),userId||"",entity,entityId||"",action,JSON.stringify(before||{}),JSON.stringify(after||{}),now_()]);
